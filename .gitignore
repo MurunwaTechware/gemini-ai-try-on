@@ -1,0 +1,45 @@
+# ── Settings and credentials ──────────────────────────────────────────────────
+# Real settings stay local; .env.example is the committed template
+.env
+# Google credentials, if a key file ever ends up in the project
+*credentials*.json
+*service-account*.json
+
+# ── App data ──────────────────────────────────────────────────────────────────
+# Uploaded photos of real people, their measurements, and try-on results
+results/
+# Third-party sample photos; share them separately rather than in the repo
+test-images/
+
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# ── Terraform (infra/terraform) ───────────────────────────────────────────────
+# Keep .terraform.lock.hcl committed: it pins provider versions
+.terraform/
+# State can contain secrets and resource details
+*.tfstate
+*.tfstate.*
+# Variable values are often environment-specific or secret; commit an example file instead
+*.tfvars
+*.tfvars.json
+!*.example.tfvars
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# ── Editors and OS ────────────────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Claude Code: personal settings stay local (shared .claude/settings.json can be committed)
+.claude/settings.local.json

@@ -1,0 +1,63 @@
+# Runs the queue setup locally: RabbitMQ, the web server, and a measurement worker.
+#
+# One-time setup on the host:
+#   1. Log in to Google Cloud:   gcloud auth application-default login
+#   2. Create your settings:     copy .env.example to .env and set GOOGLE_CLOUD_PROJECT
+#
+# Start:    docker compose up --build        then open http://localhost:8000
+# Stop:     Ctrl+C, or `docker compose down` if started with -d
+# More workers:   docker compose up --build --scale worker=3
+# RabbitMQ dashboard:   http://localhost:15673  (guest / guest)
+#
+# Optional overrides (shell environment or .env):
+#   WEB_PORT      host port for the web server (default 8000)
+#   RESULTS_DIR   host folder for uploads and results (default ./results)
+#   GCLOUD_ADC    path to the Google login file, if it isn't in the default place
+
+x-app: &app
+  build: .
+  image: tryon
+  env_file: .env
+  environment:
+    # Override whatever .env says, so the same .env still works when running without Docker
+    QUEUE_BACKEND: rabbitmq
+    RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/   # "rabbitmq" = the service below
+  volumes:
+    # Windows keeps the login file under %APPDATA%; macOS/Linux under ~/.config
+    - ${GCLOUD_ADC:-${APPDATA:-~/.config}/gcloud/application_default_credentials.json}:/gcloud/adc.json:ro
+    # Shared by web and worker: the web server saves the photos, the worker reads them
+    - ${RESULTS_DIR:-./results}:/app/results
+  depends_on:
+    rabbitmq:
+      condition: service_healthy   # wait until RabbitMQ accepts connections, not just started
+
+services:
+  rabbitmq:
+    image: rabbitmq:3-management
+    hostname: rabbitmq   # RabbitMQ keys its stored data on the hostname; keep it fixed
+    ports:
+      # Not 5672/15672, so this never clashes with another project's broker on the host
+      - "5673:5672"
+      - "15673:15672"
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq   # queued jobs survive restarts
+    healthcheck:
+      # Passes once RabbitMQ accepts client connections. (`ping` passes a few seconds earlier,
+      # when the node is up but not yet listening, so web and worker would start too soon.)
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 5s
+      timeout: 10s
+      retries: 10
+      start_period: 20s
+
+  web:
+    <<: *app
+    ports:
+      - "${WEB_PORT:-8000}:8000"
+
+  worker:
+    <<: *app
+    command: ["python", "worker.py"]
+
+volumes:
+  rabbitmq-data:
