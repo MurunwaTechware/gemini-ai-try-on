@@ -32,6 +32,7 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY *.py ./
+COPY models ./models
 COPY static ./static
 
 # Run as a normal user, not root. UID 1000 matches the usual first user on Linux hosts,

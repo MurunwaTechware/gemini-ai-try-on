@@ -24,16 +24,17 @@ import config
 
 log = logging.getLogger(__name__)
 
-JobHandler = Callable[[str], Awaitable[None]]   # called with a job ID; returns once the job is done
-DoneHandler = Callable[[str], None]             # called with a job ID when any worker finishes it
+# Messages carry {"user_id", "job_id"}: the job's folder is RUNS_DIR/<user ID>/measurement_profiles/<job ID>
+JobHandler = Callable[[str, str], Awaitable[None]]   # called with (user ID, job ID); returns once the job is done
+DoneHandler = Callable[[str, str], None]             # called with (user ID, job ID) when any worker finishes it
 
 
 class JobQueue(Protocol):
     async def connect(self) -> None: ...
     async def close(self) -> None: ...
-    async def publish_job(self, job_id: str) -> None: ...
+    async def publish_job(self, user_id: str, job_id: str) -> None: ...
     async def consume_jobs(self, handler: JobHandler, concurrency: int) -> None: ...
-    async def publish_done(self, job_id: str) -> None: ...
+    async def publish_done(self, user_id: str, job_id: str) -> None: ...
     async def subscribe_done(self, handler: DoneHandler) -> None: ...
 
 
@@ -72,9 +73,9 @@ class RabbitMQQueue:
         if self._connection:
             await self._connection.close()
 
-    async def publish_job(self, job_id: str) -> None:
+    async def publish_job(self, user_id: str, job_id: str) -> None:
         # Persistent, so a job that is queued but not yet picked up survives a broker restart
-        message = aio_pika.Message(json.dumps({"job_id": job_id}).encode(),
+        message = aio_pika.Message(json.dumps({"user_id": user_id, "job_id": job_id}).encode(),
                                    delivery_mode=aio_pika.DeliveryMode.PERSISTENT)
         await self._channel.default_exchange.publish(message, routing_key=self.JOBS_QUEUE)
 
@@ -88,12 +89,14 @@ class RabbitMQQueue:
             # raises, the job is rejected without requeueing so a broken job can't loop forever.
             # TODO: add a dead-letter queue so rejected jobs are kept for inspection, not dropped.
             async with message.process(requeue=False):
-                await handler(json.loads(message.body)["job_id"])
+                body = json.loads(message.body)
+                await handler(body["user_id"], body["job_id"])
 
         await self._jobs.consume(on_message)
 
-    async def publish_done(self, job_id: str) -> None:
-        await self._events.publish(aio_pika.Message(json.dumps({"job_id": job_id}).encode()), routing_key="")
+    async def publish_done(self, user_id: str, job_id: str) -> None:
+        body = json.dumps({"user_id": user_id, "job_id": job_id}).encode()
+        await self._events.publish(aio_pika.Message(body), routing_key="")
 
     async def subscribe_done(self, handler: DoneHandler) -> None:
         # A private, server-named queue for this web instance, deleted when it disconnects.
@@ -103,7 +106,8 @@ class RabbitMQQueue:
         await queue.bind(self._events)
 
         async def on_message(message: AbstractIncomingMessage) -> None:
-            handler(json.loads(message.body)["job_id"])
+            body = json.loads(message.body)
+            handler(body["user_id"], body["job_id"])
 
         await queue.consume(on_message, no_ack=True)
 

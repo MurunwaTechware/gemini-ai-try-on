@@ -1,12 +1,14 @@
 """Measurement jobs: everything about a job that doesn't depend on how it was delivered.
 Used by the web server (in-process mode) and by worker.py (queue mode), so no FastAPI in here.
 
-A job is a folder in RUNS_DIR holding the photos and inputs.json. Queue messages carry only
-the job ID; the worker reads everything else from the folder. With workers on other machines,
+A job is a measurement profile: a folder RUNS_DIR/<user ID>/measurement_profiles/<job ID> holding the photos
+and inputs.json. Try-ons the user saves are kept apart, in RUNS_DIR/<user ID>/saved_tryons/<ID>. Queue messages
+carry only the two IDs; the worker reads everything else from the folder. With workers on other machines,
 RUNS_DIR has to be shared storage (e.g. a Cloud Storage bucket) rather than a local folder.
 """
 import json
 import mimetypes
+import re
 from datetime import datetime
 from pathlib import Path
 
@@ -17,6 +19,26 @@ import prompts
 INPUTS_FILE = "inputs.json"
 MEASUREMENT_FILE = "measurement.json"
 ERROR_FILE = "error.json"
+PROFILES_DIR = "measurement_profiles"   # inside each user's folder
+TRYONS_DIR = "saved_tryons"             # only try-ons the user chose to save; generating alone keeps nothing
+TRYON_META_FILE = "meta.json"           # in each saved try-on: the profile it came from, and the model
+
+JOB_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")   # 20260930-123847-f5e5cc
+USER_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")    # Firebase UIDs from Google/Apple sign-in are alphanumeric
+
+
+def user_dir(user_id: str) -> Path:
+    """Everything one user has uploaded or generated. Checked, so an ID can't climb out with "../"."""
+    if not USER_ID.fullmatch(user_id):
+        raise ValueError(f"Invalid user ID: {user_id!r}")
+    return config.RUNS_DIR / user_id
+
+
+def job_path(user_id: str, job_id: str) -> Path:
+    """The job's folder, RUNS_DIR/<user ID>/measurement_profiles/<job ID>. Doesn't check that it exists."""
+    if not JOB_ID.fullmatch(job_id):
+        raise ValueError(f"Invalid job ID: {job_id!r}")
+    return user_dir(user_id) / PROFILES_DIR / job_id
 
 
 def is_finished(job_dir: Path) -> bool:

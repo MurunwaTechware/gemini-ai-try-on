@@ -1,0 +1,617 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Tailor — Account</title>
+    <!-- Account page: details, sign-in methods, measurement profiles, saved try-ons. Data: account.py -->
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            margin: 0; background: white; color: #000;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        }
+        [hidden] { display: none !important; }
+        .page { max-width: 1280px; margin: 0 auto; padding: 16px 24px 80px; }
+
+        .crumbs { font-size: 15px; color: #333; margin: 0 0 36px; }
+        .crumbs a { color: inherit; text-decoration: none; }
+        .crumbs a:hover { text-decoration: underline; }
+        .crumbs strong { color: #000; }
+
+        .layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 64px; }
+        .side { display: flex; flex-direction: column; align-self: start; position: sticky; top: 80px; }
+        .side a, .side button {
+            display: block; padding: 22px 0 22px 36px; font: inherit; font-size: 17px; color: #000;
+            text-decoration: none; text-align: left; background: none; cursor: pointer;
+            border: none; border-left: 2px solid transparent;
+        }
+        .side a:hover, .side button:hover { text-decoration: underline; }
+        .side a.active { border-left-color: #000; font-weight: 700; }
+        .side a.active:hover { text-decoration: none; }
+
+        h1 { display: flex; align-items: center; gap: 16px; font-size: 26px; margin: 4px 0 32px; }
+        h2 { font-size: 20px; margin: 0 0 24px; }
+        h3 { font-size: 19px; margin: 0 0 22px; }
+        .lead { font-size: 17px; line-height: 1.6; color: #333; margin: -12px 0 32px; max-width: 640px; }
+        .avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex: none; }
+
+        .cols { display: grid; grid-template-columns: minmax(0, 500px) minmax(0, 1fr); gap: 72px; }
+        .col-main h2:not(:first-child) { margin-top: 56px; }
+        .col-side p { font-size: 18px; line-height: 1.6; margin: 0 0 28px; }
+        .col-side .block + .block { margin-top: 56px; }
+
+        .field { margin-bottom: 26px; }
+        .label { display: block; font-size: 15px; font-weight: 500; margin-bottom: 10px; }
+        .row {
+            display: flex; align-items: center; justify-content: space-between; gap: 12px;
+            min-height: 44px; padding: 0 0 10px 10px; border-bottom: 1px solid #d9d9d9;
+        }
+        .value { color: #8a8a8a; font-size: 18px; overflow-wrap: anywhere; }
+        .value.dots { letter-spacing: 2px; }
+        .value.empty { font-style: italic; }
+        .edit { flex: none; background: none; border: none; padding: 6px; cursor: pointer; color: #000; line-height: 0; }
+        .edit:hover { opacity: 0.6; }
+
+        .editor { display: flex; flex-direction: column; gap: 12px; }
+        .editor input {
+            width: 100%; padding: 10px; border: none; border-bottom: 1px solid #000; border-radius: 0;
+            font: inherit; font-size: 18px; color: #000; background: none;
+        }
+        .editor input:focus { outline: none; box-shadow: 0 1px 0 #000; }
+        .hint { font-size: 15px; color: #555; margin: 0; line-height: 1.5; }
+        .actions { display: flex; align-items: center; gap: 20px; margin-top: 4px; }
+        .msg { font-size: 14px; color: #555; margin: 0; min-height: 0; }
+        .msg:empty { display: none; }
+        .msg.error, .error { color: #c8102e; }
+
+        .btn-solid, .btn-outline {
+            display: inline-block; font: inherit; font-weight: 700; text-transform: uppercase; text-decoration: none;
+            letter-spacing: 0.01em; cursor: pointer; border: 2px solid #000; text-align: center;
+        }
+        .btn-solid { background: #000; color: white; padding: 10px 26px; font-size: 14px; }
+        .btn-solid:hover:not(:disabled) { background: #333; border-color: #333; }
+        .btn-outline { background: white; color: #000; padding: 14px 48px; font-size: 17px; }
+        .btn-outline:hover:not(:disabled) { background: #000; color: white; }
+        .btn-outline.small { padding: 8px 14px; font-size: 13px; }
+        .btn-text { background: none; border: none; padding: 0; font: inherit; font-size: 15px; text-decoration: underline; cursor: pointer; }
+        button:disabled { opacity: 0.5; cursor: default; }
+
+        .notice { font-size: 15px; margin: -16px 0 24px; padding: 12px 14px; background: #f3f3f3; }
+        .notice:empty { display: none; }
+        .notice.error { background: #fdecee; }
+
+        /* Measurement profiles */
+        .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 28px; margin-bottom: 40px; }
+        .card { border: 1px solid #e5e5e5; display: flex; flex-direction: column; }
+        .card img, .img-missing { width: 100%; aspect-ratio: 3 / 4; object-fit: cover; background: #f3f3f3; display: block; }
+        .card-body { padding: 16px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+        .card-title { font-weight: 700; font-size: 16px; }
+        .meta { font-size: 14px; color: #555; line-height: 1.5; }
+        .card-actions { display: flex; gap: 10px; margin-top: auto; padding-top: 12px; flex-wrap: wrap; }
+
+        /* Try-on results */
+        .tryon { padding: 28px 0; border-bottom: 1px solid #e5e5e5; }
+        .tryon:first-child { padding-top: 0; }
+        .tryon-head { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; margin-bottom: 16px; }
+        .tryon-head a { color: #000; font-size: 15px; }
+        .results { display: flex; gap: 16px; flex-wrap: wrap; }
+        .results img { width: 180px; aspect-ratio: 3 / 4; object-fit: cover; background: #f3f3f3; display: block; }
+        .results a:hover img { opacity: 0.85; }
+        .used { display: flex; align-items: center; gap: 8px; margin-top: 14px; }
+        .used img { width: 44px; height: 44px; object-fit: cover; background: #f3f3f3; }
+        .empty-state { font-size: 17px; color: #555; }
+
+        /* Narrow screens: the top bar's menu (nav.js) has these sections and Sign out, so no sidebar */
+        @media (max-width: 960px) {
+            .layout { grid-template-columns: 1fr; gap: 0; }
+            .side { display: none; }
+            .crumbs { margin-bottom: 24px; }
+            .cols { grid-template-columns: 1fr; gap: 48px; }
+            .btn-outline { padding: 14px 28px; }
+        }
+    </style>
+</head>
+<body>
+<div class="page">
+    <nav class="crumbs" aria-label="Breadcrumb"><a href="/">Home</a> / <strong id="crumb">Account Info</strong></nav>
+
+    <div class="layout">
+        <aside class="side" aria-label="Account sections">
+            <a href="#info" class="active">Account Info</a>
+            <a href="#profiles">Measurement Profiles</a>
+            <a href="#tryons">Saved Try-ons</a>
+            <button id="signout" type="button">Sign Out</button>
+        </aside>
+
+        <main>
+            <!-- ── Account Info ─────────────────────────────────────────── -->
+            <section id="section-info">
+                <h1>
+                    <svg id="person-icon" width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+                        <circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/>
+                    </svg>
+                    <img id="avatar" class="avatar" alt="" referrerpolicy="no-referrer" hidden>
+                    <span>Hi, <span id="hi-name">there</span></span>
+                </h1>
+                <p id="notice" class="notice" role="status"></p>
+
+                <div class="cols">
+                    <div class="col-main">
+                        <h2>Account</h2>
+
+                        <div class="field">
+                            <span class="label">Email</span>
+                            <div class="row"><span class="value" id="email-value"></span></div>
+                        </div>
+
+                        <div class="field">
+                            <span class="label">Password</span>
+                            <div class="row">
+                                <span class="value" id="password-value"></span>
+                                <button class="edit" id="password-edit" type="button" aria-label="Change password"></button>
+                            </div>
+                            <!-- Has a password: change it -->
+                            <form class="editor" id="change-password" hidden>
+                                <input id="current-password" type="password" autocomplete="current-password" required
+                                       placeholder="Current password" aria-label="Current password">
+                                <input id="new-password" type="password" autocomplete="new-password" minlength="8" required
+                                       placeholder="New password (at least 8 characters)" aria-label="New password">
+                                <div class="actions">
+                                    <button class="btn-solid" type="submit">Save</button>
+                                    <button class="btn-text cancel" type="button">Cancel</button>
+                                </div>
+                                <p class="msg" role="status"></p>
+                            </form>
+                            <!-- Google only: confirm with Google, then set one -->
+                            <div class="editor" id="set-password" hidden>
+                                <p class="hint" data-step="1">To add a password, first confirm it's you with Google.</p>
+                                <div class="actions" data-step="1">
+                                    <button class="btn-solid" id="confirm-google" type="button">Confirm with Google</button>
+                                    <button class="btn-text cancel" type="button">Cancel</button>
+                                </div>
+                                <form class="editor" id="set-password-form" data-step="2" hidden>
+                                    <input id="set-new-password" type="password" autocomplete="new-password" minlength="8" required
+                                           placeholder="New password (at least 8 characters)" aria-label="New password">
+                                    <div class="actions">
+                                        <button class="btn-solid" type="submit">Save</button>
+                                        <button class="btn-text cancel" type="button">Cancel</button>
+                                    </div>
+                                </form>
+                                <p class="msg" role="status"></p>
+                            </div>
+                        </div>
+
+                        <div class="field">
+                            <span class="label">Continue with Google</span>
+                            <div class="row">
+                                <span class="value" id="google-value"></span>
+                                <button class="edit" id="google-edit" type="button" aria-label="Connect Google"></button>
+                            </div>
+                            <!-- Password only: confirm the password, then choose a Google account -->
+                            <div class="editor" id="connect-google" hidden>
+                                <form class="editor" id="confirm-password-form" data-step="1">
+                                    <p class="hint">To connect Google, first confirm your password.</p>
+                                    <input id="confirm-password" type="password" autocomplete="current-password" required
+                                           placeholder="Your password" aria-label="Your password">
+                                    <div class="actions">
+                                        <button class="btn-solid" type="submit">Confirm</button>
+                                        <button class="btn-text cancel" type="button">Cancel</button>
+                                    </div>
+                                </form>
+                                <div class="actions" data-step="2" hidden>
+                                    <button class="btn-solid" id="link-google" type="button">Choose your Google account</button>
+                                    <button class="btn-text cancel" type="button">Cancel</button>
+                                </div>
+                                <p class="msg" role="status"></p>
+                            </div>
+                        </div>
+
+                        <h2>Personal Information</h2>
+
+                        <div class="field" data-field="first_name">
+                            <span class="label">Name</span>
+                            <div class="row"><span class="value"></span><button class="edit" type="button" aria-label="Edit name"></button></div>
+                            <form class="editor" hidden>
+                                <input type="text" autocomplete="given-name" maxlength="60" aria-label="Name">
+                                <div class="actions">
+                                    <button class="btn-solid" type="submit">Save</button>
+                                    <button class="btn-text cancel" type="button">Cancel</button>
+                                </div>
+                                <p class="msg" role="status"></p>
+                            </form>
+                        </div>
+
+                        <div class="field" data-field="last_name">
+                            <span class="label">Surname</span>
+                            <div class="row"><span class="value"></span><button class="edit" type="button" aria-label="Edit surname"></button></div>
+                            <form class="editor" hidden>
+                                <input type="text" autocomplete="family-name" maxlength="60" aria-label="Surname">
+                                <div class="actions">
+                                    <button class="btn-solid" type="submit">Save</button>
+                                    <button class="btn-text cancel" type="button">Cancel</button>
+                                </div>
+                                <p class="msg" role="status"></p>
+                            </form>
+                        </div>
+
+                        <div class="field" data-field="phone">
+                            <span class="label">Contact Number</span>
+                            <div class="row"><span class="value"></span><button class="edit" type="button" aria-label="Edit contact number"></button></div>
+                            <form class="editor" hidden>
+                                <input type="tel" autocomplete="tel" maxlength="20" placeholder="e.g. 082 123 4567" aria-label="Contact number">
+                                <div class="actions">
+                                    <button class="btn-solid" type="submit">Save</button>
+                                    <button class="btn-text cancel" type="button">Cancel</button>
+                                </div>
+                                <p class="msg" role="status"></p>
+                            </form>
+                        </div>
+                    </div>
+
+                    <div class="col-side">
+                        <div class="block">
+                            <h3>View personal information</h3>
+                            <p>We only keep the information needed for your measurements and try-ons. You can download
+                               a copy of everything we hold about you.</p>
+                            <a class="btn-outline" href="/me/export" download>Download information</a>
+                        </div>
+                        <div class="block">
+                            <h3>Your photos and measurements</h3>
+                            <p>Your photos, measurement profiles and saved try-ons are only visible to you.</p>
+                            <a class="btn-outline" href="#profiles">Measurement profiles</a>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ── Measurement Profiles ─────────────────────────────────── -->
+            <section id="section-profiles" hidden>
+                <h1>Measurement Profiles</h1>
+                <p class="lead">Each set of three photos you upload makes a profile with your estimated measurements.
+                    Open one to see the measurements, or to try clothes on.</p>
+                <div id="profile-list" class="grid"><p class="meta">Loading…</p></div>
+                <a class="btn-outline" href="/">New measurement profile</a>
+            </section>
+
+            <!-- ── Saved Try-ons ────────────────────────────────────────── -->
+            <section id="section-tryons" hidden>
+                <h1>Saved Try-ons</h1>
+                <p class="lead">The try-on results you've saved, newest first. Click one to open it full size.</p>
+                <div id="tryon-list"><p class="meta">Loading…</p></div>
+            </section>
+        </main>
+    </div>
+</div>
+
+<script src="/static/nav.js" defer></script>
+<script type="module">
+    import {
+        GoogleAuthProvider, EmailAuthProvider, signInWithPopup, signInWithEmailAndPassword,
+        linkWithCredential, linkWithPopup, updatePassword, getAdditionalUserInfo, signOut,
+    } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+    import { startAuth, errorMessage, isCancelled } from "/static/auth-client.js";
+
+    const $ = (id) => document.getElementById(id);
+    const PENCIL = `<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"
+        stroke-linejoin="round" aria-hidden="true"><path d="M4 20l1-4L16 5l3 3L8 19l-4 1z"/><path d="M14 7l3 3"/></svg>`;
+    document.querySelectorAll(".edit").forEach((b) => (b.innerHTML = PENCIL));   // fixed markup, no user data
+
+    const MESSAGES = {
+        "auth/invalid-credential": "Wrong password.",
+        "auth/email-already-in-use": "That Google account's email already belongs to a different account here.",
+    };
+    const GENDER = { male: "Male", female: "Female", neutral: "Gender not given" };
+    const SLOT = { top: "Top", bottom: "Bottom", headwear: "Headwear", eyewear: "Eyewear" };
+
+    let me, methods, auth;
+    // Firebase only adds or changes a sign-in method for a user who has just signed in, so each change
+    // starts by confirming it's them with a method they already have. This holds the user from that step.
+    let confirmed = null;
+
+    // ── Helpers ─────────────────────────────────────────────────────────────
+
+    // A DOM element with properties set (className, href, textContent, ...): user data never goes in as HTML
+    function el(tag, props = {}, ...children) {
+        const node = Object.assign(document.createElement(tag), props);
+        node.append(...children.filter(Boolean));
+        return node;
+    }
+
+    function formatDate(iso) {
+        return new Date(iso).toLocaleString("en-ZA", {
+            day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit",
+        });
+    }
+
+    async function getJSON(url) {
+        const res = await fetch(url);
+        if (res.status === 401) location.replace("/login?next=" + encodeURIComponent(location.pathname + location.hash));
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `Couldn't load this (${res.status}). Reload the page to try again.`);
+        return data;
+    }
+
+    function setMsg(node, text, isError = false) {
+        node.textContent = text;
+        node.classList.toggle("error", isError);
+    }
+    const notice = (text, isError = false) => setMsg($("notice"), text, isError);
+
+    // ── Sections (Account Info / Measurement Profiles / Saved Try-ons) ───────
+
+    const SECTIONS = { info: "Account Info", profiles: "Measurement Profiles", tryons: "Saved Try-ons" };
+    const loaded = {};
+
+    function showSection() {
+        const name = location.hash.slice(1) in SECTIONS ? location.hash.slice(1) : "info";
+        // Not ids matching the #hash: the browser would scroll to them, past the breadcrumb and under the top bar
+        for (const key in SECTIONS) $(`section-${key}`).hidden = key !== name;
+        document.querySelectorAll(".side a").forEach((a) => a.classList.toggle("active", a.hash === `#${name}`));
+        $("crumb").textContent = SECTIONS[name];
+        scrollTo(0, 0);
+        if (name === "profiles" && !loaded.profiles) loaded.profiles = loadProfiles();
+        if (name === "tryons" && !loaded.tryons) loaded.tryons = loadTryOns();
+    }
+    addEventListener("hashchange", showSection);
+
+    // ── Account Info ────────────────────────────────────────────────────────
+
+    function renderInfo() {
+        $("hi-name").textContent = me.first_name || "there";
+        if (me.photo_url) {   // Google's picture in place of the icon, once it has loaded
+            $("avatar").onload = () => {
+                $("avatar").hidden = false;
+                $("person-icon").setAttribute("hidden", "");   // an <svg> has no .hidden property, only the attribute
+            };
+            $("avatar").src = me.photo_url;
+        }
+        $("email-value").textContent = me.email || "";
+        for (const field of document.querySelectorAll(".field[data-field]")) {
+            const value = me[field.dataset.field];
+            const span = field.querySelector(".value");
+            span.textContent = value || "Not added";
+            span.classList.toggle("empty", !value);
+        }
+        $("password-value").textContent = methods.password ? "••••••••••" : "Not set";
+        $("password-value").classList.toggle("dots", methods.password);
+        $("password-value").classList.toggle("empty", !methods.password);
+        $("google-value").textContent = methods.google ? "Connected" : "Not connected";
+        $("google-value").classList.toggle("empty", !methods.google);
+        // A password can be changed, or added with Google's help. Google can be connected, not removed here.
+        $("password-edit").hidden = !methods.password && !methods.google;
+        $("password-edit").setAttribute("aria-label", methods.password ? "Change password" : "Set a password");
+        $("google-edit").hidden = methods.google || !methods.password;
+    }
+
+    // Back to the first step: hide later steps, clear inputs and messages, forget the confirmation
+    function resetEditor(editor) {
+        confirmed = null;
+        editor.querySelectorAll("[data-step='1']").forEach((n) => (n.hidden = false));
+        editor.querySelectorAll("[data-step='2']").forEach((n) => (n.hidden = true));
+        editor.querySelectorAll("input").forEach((i) => (i.value = ""));
+        editor.querySelectorAll(".msg").forEach((m) => setMsg(m, ""));
+    }
+
+    function closeEditor(editor) {
+        if (editor.hidden) return;
+        resetEditor(editor);
+        editor.hidden = true;
+        editor.closest(".field").querySelector(".row").hidden = false;
+        if (auth) signOut(auth).catch(() => {});   // drop any confirmation; the session cookie is unaffected
+    }
+
+    function openEditor(editor) {
+        document.querySelectorAll(".field > .editor").forEach(closeEditor);   // one at a time
+        notice("");
+        editor.closest(".field").querySelector(".row").hidden = true;
+        editor.hidden = false;
+        editor.querySelector("input:not([hidden])")?.focus();
+    }
+
+    document.querySelectorAll(".cancel").forEach((b) =>
+        b.addEventListener("click", () => closeEditor(b.closest(".field > .editor"))));
+
+    // Runs one step of an editor with its buttons disabled, and shows what went wrong if it fails
+    async function run(editor, step) {
+        const msg = editor.querySelector(".msg");
+        const buttons = [...editor.querySelectorAll("button")];
+        buttons.forEach((b) => (b.disabled = true));
+        setMsg(msg, "");
+        try {
+            await step();
+        } catch (err) {
+            if (err.code === "auth/requires-recent-login") resetEditor(editor);
+            if (!isCancelled(err)) setMsg(msg, errorMessage(err, MESSAGES), true);
+        } finally {
+            buttons.forEach((b) => (b.disabled = false));
+        }
+    }
+
+    // After a sign-in method changed: close the editor, re-read the methods, say what happened
+    async function finished(editor, message) {
+        closeEditor(editor);
+        methods = await getJSON("/me/sign-in-methods");
+        renderInfo();
+        notice(message);
+    }
+
+    // The confirmation has to be the account that's signed in here, not just any account
+    async function confirm(result) {
+        if (result.user.uid !== me.uid) {
+            // A Google account that had never signed in here just became a new user: remove it again
+            if (getAdditionalUserInfo(result)?.isNewUser) await result.user.delete().catch(() => {});
+            await signOut(auth);
+            throw new Error("That's a different account from the one you're signed in with.");
+        }
+        confirmed = result.user;
+    }
+
+    // Name, Surname, Contact Number: one field at a time
+    for (const field of document.querySelectorAll(".field[data-field]")) {
+        const editor = field.querySelector(".editor");
+        const input = editor.querySelector("input");
+        field.querySelector(".edit").addEventListener("click", () => {
+            openEditor(editor);
+            input.value = me[field.dataset.field] || "";
+        });
+        editor.addEventListener("submit", (event) => {
+            event.preventDefault();
+            run(editor, async () => {
+                const res = await fetch("/me", {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ [field.dataset.field]: input.value }),
+                });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.detail || `Couldn't save (${res.status}).`);
+                me = data;
+                closeEditor(editor);
+                renderInfo();
+            });
+        });
+    }
+
+    // Password: change it (has one), or add one after confirming with Google (Google only)
+    $("password-edit").addEventListener("click", () =>
+        openEditor(methods.password ? $("change-password") : $("set-password")));
+
+    $("change-password").addEventListener("submit", (event) => {
+        event.preventDefault();
+        run($("change-password"), async () => {
+            await confirm(await signInWithEmailAndPassword(auth, me.email, $("current-password").value));
+            await updatePassword(confirmed, $("new-password").value);
+            await finished($("change-password"), "Password changed.");
+        });
+    });
+
+    $("confirm-google").addEventListener("click", () => run($("set-password"), async () => {
+        await confirm(await signInWithPopup(auth, new GoogleAuthProvider()));
+        $("set-password").querySelectorAll("[data-step='1']").forEach((n) => (n.hidden = true));
+        $("set-password-form").hidden = false;
+        $("set-new-password").focus();
+    }));
+
+    $("set-password-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        run($("set-password"), async () => {
+            const email = confirmed.email;
+            await linkWithCredential(confirmed, EmailAuthProvider.credential(email, $("set-new-password").value));
+            await finished($("set-password"), `Password set. You can now also sign in with ${email} and this password.`);
+        });
+    });
+
+    // Google: confirm the password, then choose the Google account. Two clicks rather than one,
+    // because browsers block a pop-up that doesn't open straight from a click.
+    $("google-edit").addEventListener("click", () => openEditor($("connect-google")));
+
+    $("confirm-password-form").addEventListener("submit", (event) => {
+        event.preventDefault();
+        run($("connect-google"), async () => {
+            await confirm(await signInWithEmailAndPassword(auth, me.email, $("confirm-password").value));
+            $("connect-google").querySelectorAll("[data-step='1']").forEach((n) => (n.hidden = true));
+            $("connect-google").querySelectorAll("[data-step='2']").forEach((n) => (n.hidden = false));
+        });
+    });
+
+    $("link-google").addEventListener("click", () => run($("connect-google"), async () => {
+        await linkWithPopup(confirmed, new GoogleAuthProvider());
+        await finished($("connect-google"), "Google connected. You can now also use Continue with Google.");
+    }));
+
+    // ── Measurement Profiles ────────────────────────────────────────────────
+
+    function profileCard(p) {
+        const inputs = p.inputs || {};
+        const facts = [
+            inputs.height_cm && `${Math.round(inputs.height_cm)} cm`,
+            inputs.weight_kg && `${Math.round(inputs.weight_kg)} kg`,
+            GENDER[inputs.gender],
+            inputs.age && `${inputs.age} years`,
+        ].filter(Boolean).join(" · ");
+        const state = p.status === "ready" ? (p.body_shape?.build ? `${p.body_shape.build} build` : "Measured")
+            : p.status === "failed" ? `Measuring failed. ${p.error || ""}`
+            : "Not finished: still measuring, or interrupted.";
+        const job = encodeURIComponent(p.job_id);
+        return el("article", { className: "card" },
+            p.photo ? el("img", { src: p.photo, alt: "Front photo", loading: "lazy" }) : el("div", { className: "img-missing" }),
+            el("div", { className: "card-body" },
+                el("div", { className: "card-title", textContent: formatDate(p.created) }),
+                facts && el("div", { className: "meta", textContent: facts }),
+                el("div", { className: p.status === "failed" ? "meta error" : "meta", textContent: state }),
+                p.status === "ready" && el("div", { className: "card-actions" },
+                    el("a", { className: "btn-outline small", href: `/measurements?job=${job}`, textContent: "Measurements" }),
+                    el("a", { className: "btn-outline small", href: `/tryon?job=${job}`, textContent: "Try on" }))));
+    }
+
+    async function loadProfiles() {
+        try {
+            const profiles = await getJSON("/me/measurement-profiles");
+            $("profile-list").replaceChildren(...(profiles.length ? profiles.map(profileCard)
+                : [el("p", { className: "empty-state", textContent: "No measurement profiles yet. Upload three photos to make your first one." })]));
+        } catch (err) {
+            $("profile-list").replaceChildren(el("p", { className: "msg error", textContent: err.message }));
+            loaded.profiles = null;   // try again next time the section opens
+        }
+    }
+
+    // ── Saved Try-ons ───────────────────────────────────────────────────────
+
+    function tryOnCard(t) {
+        const items = Object.keys(t.garments).map((slot) => SLOT[slot] || slot).join(" + ");
+        const used = [t.person, ...Object.values(t.garments)].filter(Boolean);
+        return el("article", { className: "tryon" },
+            el("div", { className: "tryon-head" },
+                el("div", {},
+                    el("div", { className: "card-title", textContent: formatDate(t.saved) }),
+                    el("div", { className: "meta", textContent: items || "Try-on" })),
+                t.measurement_profile && el("a", {
+                    href: `/measurements?job=${encodeURIComponent(t.measurement_profile)}`,
+                    textContent: "View measurement profile",
+                })),
+            t.result && el("div", { className: "results" },
+                el("a", { href: t.result, target: "_blank", rel: "noopener" },
+                    el("img", { src: t.result, alt: "Try-on result", loading: "lazy" }))),
+            used.length > 0 && el("div", { className: "used" },
+                el("span", { className: "meta", textContent: "Made from:" }),
+                ...used.map((src) => el("img", { src, alt: "", loading: "lazy" }))));
+    }
+
+    async function loadTryOns() {
+        try {
+            const saved = await getJSON("/me/saved-tryons");
+            $("tryon-list").replaceChildren(...(saved.length ? saved.map(tryOnCard)
+                : [el("p", { className: "empty-state", textContent: "No saved try-ons yet. When you try something on, choose Save to keep it here." })]));
+        } catch (err) {
+            $("tryon-list").replaceChildren(el("p", { className: "msg error", textContent: err.message }));
+            loaded.tryons = null;
+        }
+    }
+
+    // ── Start ───────────────────────────────────────────────────────────────
+
+    $("signout").addEventListener("click", async () => {
+        $("signout").disabled = true;
+        try {
+            await fetch("/logout", { method: "POST" });
+        } finally {
+            location.replace("/login");
+        }
+    });
+
+    showSection();
+    try {
+        [me, methods] = await Promise.all([getJSON("/me"), getJSON("/me/sign-in-methods")]);
+        renderInfo();
+    } catch (err) {
+        notice(err.message, true);
+    }
+    try {
+        auth = await startAuth();   // only needed for the password and Google changes
+    } catch (err) {
+        $("password-edit").disabled = $("google-edit").disabled = true;
+        notice(`Sign-in changes are unavailable right now: ${err.message}`, true);
+    }
+</script>
+</body>
+</html>

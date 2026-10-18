@@ -106,7 +106,10 @@
   .thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .meta { color: var(--muted); font-size: 0.875rem; }
   a.dl { color: var(--accent); font-weight: 500; }
+  .result-actions { display: flex; align-items: center; gap: 16px; }
+  .result-actions button.primary { flex: none; }
 </style>
+<script src="/static/nav.js" defer></script>
 </head>
 <body>
 <main>
@@ -166,7 +169,7 @@
 </main>
 
 <script>
-  // Set when arriving from the measurements page; try-on runs are then saved in that session's folder
+  // Set when arriving from a measurement profile; saved try-ons then link back to it
   const jobId = new URLSearchParams(location.search).get("job");
   if (jobId) {
     const back = document.getElementById("backLink");
@@ -235,7 +238,8 @@
 
   const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 
-  function renderResults(payload) {
+  // inputs: the photos and rules these results were generated from, kept for Save
+  function renderResults(payload, inputs) {
     const ok = payload.results.filter(r => r.ok);
     const failed = payload.results.filter(r => !r.ok);
     const urls = ok.map(r => `data:${r.mime_type};base64,${r.data}`);
@@ -245,7 +249,7 @@
     stage.innerHTML = `
       <div style="width:100%">
         <div class="compare" id="cmp" style="--pos:50%">
-          <img src="${personURL}" alt="Original person photo">
+          <img src="${inputs.personURL}" alt="Original person photo">
           <img class="after" id="afterImg" src="${urls[0]}" alt="Try-on result">
           <div class="handle"></div>
           <span class="side l">Original</span><span class="side r">Try-on</span>
@@ -254,24 +258,63 @@
         <div class="result-bar">
           <div class="thumbs">${urls.length > 1 ? urls.map((u, i) =>
             `<button aria-pressed="${i === 0}" data-i="${i}" aria-label="Show result ${i + 1}"><img src="${u}" alt=""></button>`).join("") : ""}</div>
-          <span class="meta">${esc(payload.garments.join(" + "))} · ${esc(payload.model)} · saved as run ${esc(payload.run_id)}</span>
-          <a class="dl" id="dl" href="${urls[0]}" download="tryon_${payload.run_id}_1.png">Download result</a>
+          <span class="meta">${esc(payload.garments.join(" + "))} · ${esc(payload.model)}</span>
+          <div class="result-actions">
+            <a class="dl" id="dl" href="${urls[0]}" download="tryon-result-1.png">Download</a>
+            <button class="primary" id="save" type="button">Save to my account</button>
+          </div>
         </div>
+        <p class="note" id="saveNote" hidden>Saved. Find it in <a href="/account#tryons">My Account → Saved Try-ons</a>.</p>
         <p class="note" id="modelText" ${ok[0].model_text ? "" : "hidden"}>Model said: ${esc(ok[0].model_text || "")}</p>
         ${fails}
       </div>`;
 
+    let current = 0;           // the result being shown
+    const saved = new Set();   // results already saved, so the same one isn't saved twice
+    const saveBtn = document.getElementById("save");
+    const showSaveState = () => {
+      saveBtn.disabled = saved.has(current);
+      saveBtn.textContent = saved.has(current) ? "Saved ✓" : "Save to my account";
+      document.getElementById("saveNote").hidden = !saved.has(current);
+    };
+
     const cmp = document.getElementById("cmp");
     cmp.querySelector("input").addEventListener("input", e => cmp.style.setProperty("--pos", e.target.value + "%"));
     stage.querySelectorAll(".thumbs button").forEach(b => b.addEventListener("click", () => {
-      const i = +b.dataset.i;
-      document.getElementById("afterImg").src = urls[i];
+      current = +b.dataset.i;
+      document.getElementById("afterImg").src = urls[current];
       const dl = document.getElementById("dl");
-      dl.href = urls[i]; dl.download = `tryon_${payload.run_id}_${i + 1}.png`;
+      dl.href = urls[current]; dl.download = `tryon-result-${current + 1}.png`;
       const note = document.getElementById("modelText");
-      note.hidden = !ok[i].model_text; note.textContent = `Model said: ${ok[i].model_text || ""}`;
+      note.hidden = !ok[current].model_text; note.textContent = `Model said: ${ok[current].model_text || ""}`;
       stage.querySelectorAll(".thumbs button").forEach(x => x.setAttribute("aria-pressed", x === b));
+      showSaveState();
     }));
+
+    // Generating keeps nothing on the server, so Save sends the chosen result back with what it was made from
+    saveBtn.addEventListener("click", async () => {
+      const i = current;
+      saveBtn.disabled = true;
+      saveBtn.textContent = "Saving…";
+      try {
+        const body = new FormData();
+        const result = await (await fetch(urls[i])).blob();   // the data: URL back into a file
+        body.append("result", new File([result], "result", { type: ok[i].mime_type }));
+        body.append("person", inputs.person);
+        for (const [slot, file] of Object.entries(inputs.items)) body.append(slot, file);
+        body.append("prompt", inputs.prompt);
+        if (jobId) body.append("job", jobId);
+        const res = await fetch("/try-on/save", { method: "POST", body });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.detail || `Couldn't save (${res.status}).`);
+        saved.add(i);
+        setStatus("");
+      } catch (err) {
+        setStatus(err.message, true);
+      } finally {
+        showSaveState();
+      }
+    });
   }
 
   goBtn.addEventListener("click", async () => {
@@ -279,18 +322,23 @@
     const started = Date.now();
     const tick = setInterval(() => setStatus(`Generating… ${Math.round((Date.now() - started) / 1000)}s`), 500);
 
+    // A snapshot: the user may change the photos after generating, but Save must send these ones
+    const inputs = {
+      person: files.person, personURL,
+      items: Object.fromEntries(ITEM_SLOTS.filter(s => files[s]).map(s => [s, files[s]])),
+      prompt: promptEl.value,
+    };
     const body = new FormData();
-    body.append("person", files.person);
-    ITEM_SLOTS.forEach(s => { if (files[s]) body.append(s, files[s]); });
-    body.append("prompt", promptEl.value);
+    body.append("person", inputs.person);
+    for (const [slot, file] of Object.entries(inputs.items)) body.append(slot, file);
+    body.append("prompt", inputs.prompt);
     body.append("count", document.getElementById("count").value);
-    if (jobId) body.append("job", jobId);
 
     try {
       const res = await fetch("/try-on", { method: "POST", body });
       const payload = await res.json();
       if (!res.ok) throw new Error(payload.detail || `Request failed (${res.status}).`);
-      renderResults(payload);
+      renderResults(payload, inputs);
       setStatus(`Done in ${Math.round((Date.now() - started) / 1000)}s.`);
     } catch (err) {
       setStatus(err.message, true);

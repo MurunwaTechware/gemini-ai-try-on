@@ -21,6 +21,7 @@ MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
 MEASURE_MODEL = os.getenv("GEMINI_MEASURE_MODEL", "gemini-2.5-pro")
 
 MAX_IMAGE_BYTES = 7 * 1024 * 1024        # inline-data limit per image
+MAX_RESULT_BYTES = 20 * 1024 * 1024      # a generated result being saved: never sent to Gemini, can be bigger
 # Inline requests cap out around 20 MB and base64 adds ~33%, so keep the raw total under ~14 MB
 MAX_TOTAL_BYTES = 14 * 1024 * 1024
 MAX_OUTPUTS = 4                          # the repo fired 10; 4 is plenty for a demo
@@ -39,3 +40,14 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 # Jobs one worker runs at once. Each job is ~30 s of waiting on Gemini, so this can be above 1;
 # keep (workers x this) within the project's Gemini quota or the extra calls fail with 429s.
 WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "4"))
+
+# Sign-in (Firebase Authentication, "Continue with Google"). The web config values below are public
+# by design: they only identify the Firebase project to the browser and grant no access by themselves.
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", PROJECT_ID)
+FIREBASE_AUTH_DOMAIN = os.getenv("FIREBASE_AUTH_DOMAIN", f"{FIREBASE_PROJECT_ID}.firebaseapp.com")
+# How long a sign-in lasts. Firebase allows 5 minutes to 14 days.
+SESSION_DAYS = int(os.getenv("SESSION_DAYS", "5"))
+# Session cookie is HTTPS-only. Chrome, Edge and Firefox treat http://localhost as secure, so this can
+# stay on locally; set to false only for a browser that doesn't (e.g. Safari) or a plain-HTTP host.
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() != "false"

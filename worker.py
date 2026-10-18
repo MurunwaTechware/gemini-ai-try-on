@@ -18,8 +18,8 @@ async def main() -> None:
     queue = create_queue()
     await queue.connect()
 
-    async def handle(job_id: str) -> None:
-        job_dir = config.RUNS_DIR / job_id
+    async def handle(user_id: str, job_id: str) -> None:
+        job_dir = jobs.job_path(user_id, job_id)   # raises on a malformed message, so it's rejected
         # A redelivered job (the previous worker died before acknowledging) may already be done;
         # skip the model call rather than paying for it twice
         if jobs.is_finished(job_dir):
@@ -30,7 +30,7 @@ async def main() -> None:
             log.info("job %s finished", job_id)
         # Announce before the message is acknowledged, so a crash here means a redelivery
         # (handled by the check above) rather than a browser that never hears back
-        await queue.publish_done(job_id)
+        await queue.publish_done(user_id, job_id)
 
     await queue.consume_jobs(handle, concurrency=config.WORKER_CONCURRENCY)
     log.info("waiting for jobs (up to %d at a time); Ctrl+C to stop", config.WORKER_CONCURRENCY)
