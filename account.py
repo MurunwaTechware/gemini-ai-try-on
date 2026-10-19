@@ -16,6 +16,7 @@ from pydantic import BaseModel
 
 import config
 import jobs
+import prompts
 import user_store
 from auth import User, current_user, page_user, same_origin
 from models.Entities.Users import User as UserRecord   # the stored record; auth.User is only who's signed in
@@ -83,6 +84,8 @@ def update_me(body: DetailsUpdate, user: User = Depends(current_user)):
 @router.get("/me/sign-in-methods")
 def sign_in_methods(user: User = Depends(current_user)):
     """Which ways this account can sign in. Asks Firebase, since linking happens in the browser."""
+    if not config.AUTH_ENABLED:   # the demo user has no Firebase account, so nothing to link or change
+        return {"google": False, "password": False}
     providers = {p.provider_id for p in fb_auth.get_user(user.uid).provider_data}
     return {"google": "google.com" in providers, "password": "password" in providers}
 
@@ -130,6 +133,8 @@ def _profile(folder: Path) -> dict:
         "inputs": _read_json(folder / jobs.INPUTS_FILE),
         "body_shape": (measurement or {}).get("body_shape"),
         "photo": _image(jobs.PROFILES_DIR, folder, "front"),
+        # All three views, for pages that show every photo from the scan
+        "photos": {view: _image(jobs.PROFILES_DIR, folder, view) for view in prompts.MEASURE_VIEWS},
     }
 
 

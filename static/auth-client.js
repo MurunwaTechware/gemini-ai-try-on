@@ -3,8 +3,10 @@
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js";
 import { getAuth, setPersistence, inMemoryPersistence } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
 
+// Returns null when the server has sign-in turned off (AUTH_ENABLED=false): there's no Firebase to start.
 export async function startAuth() {
-    const config = await (await fetch("/auth/config")).json();
+    const { enabled, ...config } = await (await fetch("/auth/config")).json();
+    if (!enabled) return null;
     const auth = getAuth(initializeApp(config));
     // Keep nothing in browser storage: the server's cookie is the sign-in
     await setPersistence(auth, inMemoryPersistence);

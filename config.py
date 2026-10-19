@@ -41,6 +41,13 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 # keep (workers x this) within the project's Gemini quota or the extra calls fail with 429s.
 WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "4"))
 
+# Sign-in on or off. Off (AUTH_ENABLED=false in .env) is for local development and demos: there's no
+# Google sign-in, Firebase and Firestore are never called, and every request is the demo user, whose
+# files go in results/<DEMO_USER_ID>/. On unless .env says otherwise, so a missing setting can't
+# quietly switch sign-in off on a real server.
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() != "false"
+DEMO_USER_ID = "demo-user"   # the same ID as the frontend's mock user
+
 # Sign-in (Firebase Authentication, "Continue with Google"). The web config values below are public
 # by design: they only identify the Firebase project to the browser and grant no access by themselves.
 FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")

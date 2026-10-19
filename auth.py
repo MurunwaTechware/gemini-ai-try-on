@@ -12,6 +12,9 @@ Flow:
 The UID is Firebase's, so it's the same user whichever way they sign in once the methods are linked.
 Linking happens on /account, in the browser: Firebase only links for a user who has just signed in.
 The account page and the user's own data (/me...) are in account.py.
+
+With AUTH_ENABLED=false (config.py) none of this runs: every request is DEMO_USER, /login goes
+straight into the app, and Firebase is never set up. For local development and demos only.
 """
 import logging
 import time
@@ -22,7 +25,7 @@ from urllib.parse import quote, urlsplit
 
 import firebase_admin
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from firebase_admin import auth as fb_auth
 from pydantic import BaseModel
 
@@ -45,6 +48,10 @@ class User:
     photo_url: str | None   # Google's profile picture; none for Apple or email/password
 
 
+# Every request's user when sign-in is off. Its records live in memory (see user_store.py).
+DEMO_USER = User(uid=config.DEMO_USER_ID, email="demo@example.com", name="Demo User", photo_url=None)
+
+
 class LoginRequired(Exception):
     """Raised by page_user; main.py turns it into a redirect to /login?next=<page>."""
     def __init__(self, next_path: str):
@@ -52,6 +59,10 @@ class LoginRequired(Exception):
 
 
 def init() -> None:
+    if not config.AUTH_ENABLED:
+        log.warning("Sign-in is OFF (AUTH_ENABLED=false): every request is the demo user %r. "
+                    "Never run a shared or public server like this.", DEMO_USER.uid)
+        return
     if not config.FIREBASE_API_KEY or not config.FIREBASE_PROJECT_ID:
         raise RuntimeError("Sign-in isn't configured: set FIREBASE_API_KEY in .env (see README, Sign-in).")
     try:
@@ -89,6 +100,8 @@ def _user_from_cookie(request: Request) -> User | None:
 # Plain `def`, so FastAPI runs these in a thread: the Firebase calls block
 def current_user(request: Request) -> User:
     """For API routes: 401 when not signed in. The pages show the message."""
+    if not config.AUTH_ENABLED:
+        return DEMO_USER
     user = _user_from_cookie(request)
     if not user:
         raise HTTPException(401, "Your sign-in has expired. Reload the page to sign in again.")
@@ -97,6 +110,8 @@ def current_user(request: Request) -> User:
 
 def page_user(request: Request) -> User:
     """For pages: redirect to /login, then back here once signed in."""
+    if not config.AUTH_ENABLED:
+        return DEMO_USER
     user = _user_from_cookie(request)
     if not user:
         query = f"?{request.url.query}" if request.url.query else ""
@@ -123,19 +138,25 @@ class SessionRequest(BaseModel):
 
 
 @router.get("/login", include_in_schema=False)
-def login_page():
+def login_page(next: str | None = None):
+    if not config.AUTH_ENABLED:   # nothing to sign in to: go where they were heading
+        return RedirectResponse(safe_next(next), status_code=303)
     return FileResponse(STATIC / "login.html")
 
 
 @router.get("/auth/config")
 def firebase_web_config():
     """What the login page needs to start the Firebase JS SDK. Public values, not secrets."""
-    return {"apiKey": config.FIREBASE_API_KEY, "authDomain": config.FIREBASE_AUTH_DOMAIN,
+    if not config.AUTH_ENABLED:
+        return {"enabled": False}   # the pages then skip starting Firebase (auth-client.js)
+    return {"enabled": True, "apiKey": config.FIREBASE_API_KEY, "authDomain": config.FIREBASE_AUTH_DOMAIN,
             "projectId": config.FIREBASE_PROJECT_ID}
 
 
 @router.post("/session", dependencies=[Depends(same_origin)])
 def create_session(body: SessionRequest, response: Response):
+    if not config.AUTH_ENABLED:
+        raise HTTPException(404, "Sign-in is turned off on this server (AUTH_ENABLED=false).")
     try:
         claims = fb_auth.verify_id_token(body.id_token, check_revoked=True)
     except (fb_auth.InvalidIdTokenError, fb_auth.RevokedIdTokenError, fb_auth.UserDisabledError):

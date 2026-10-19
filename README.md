@@ -45,12 +45,13 @@ By default this runs in **in-process** mode: measurements run inside the web ser
 
 ## Configuration
 
-Settings are read from `.env`. Only the first two are required.
+Settings are read from `.env`. Only the first two are required, and only the first one with sign-in off.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `GOOGLE_CLOUD_PROJECT` | (required) | Google Cloud project that runs and pays for the Gemini calls |
-| `FIREBASE_API_KEY` | (required) | Firebase web API key for sign-in. Public by design, but keep it in `.env` with the rest |
+| `FIREBASE_API_KEY` | (required) | Firebase web API key for sign-in. Public by design, but keep it in `.env` with the rest. Not needed with `AUTH_ENABLED=false` |
+| `AUTH_ENABLED` | `true` | `false` turns sign-in off for local development: everyone is the demo user. See [Sign-in](#sign-in) |
 | `FIREBASE_PROJECT_ID` | `GOOGLE_CLOUD_PROJECT` | Firebase project, if it's a different one |
 | `FIREBASE_AUTH_DOMAIN` | `<project>.firebaseapp.com` | Where Google's sign-in window comes from |
 | `SESSION_DAYS` | `5` | How long a sign-in lasts (Firebase allows up to 14) |
@@ -137,6 +138,16 @@ Email and password accounts:
 - Verification and reset emails come from `noreply@<project>.firebaseapp.com` and may land in spam. The wording and sender name are under **Authentication → Templates**.
 
 Requests that change something (`/session`, `/logout`, `/process_upload`, `/try-on`, `/try-on/save`, `PATCH /me`) must come from the app's own pages: the server checks the `Origin` header. If the frontend moves to a different domain from this server, that check and the cookie settings need revisiting.
+
+### Turning sign-in off
+
+For local development and demos, set `AUTH_ENABLED=false` in `.env` and restart. Then:
+
+- There's no sign-in page: `/login` goes straight into the app, and every request is the **demo user** (`demo-user`, the same ID as the frontend's mock user). Their files go in `results/demo-user/`.
+- Firebase and Firestore are never called, so none of the setup below is needed and `FIREBASE_API_KEY` can stay empty. Gemini still needs the Google Cloud login from the quick start.
+- The demo user's details on `/account` live in memory: edits last until the server restarts.
+
+The server logs a warning at startup while sign-in is off. Never run a shared or public server this way: anyone who can reach it acts as the same user.
 
 ## How it works
 
