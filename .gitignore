@@ -43,3 +43,7 @@ desktop.ini
 
 # Claude Code: personal settings stay local (shared .claude/settings.json can be committed)
 .claude/settings.local.json
+
+superbalist/__pycache__/
+superbalist/*.pyc
+*.env
