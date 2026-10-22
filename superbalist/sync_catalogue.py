@@ -14,8 +14,9 @@ WHAT CHANGED (v2)
       of the category.
 
 SETUP
-    pip install requests psycopg2-binary
-    $env:DATABASE_URL = "postgresql://postgres:<password>@localhost:5432/tryon"
+    pip install requests psycopg2-binary python-dotenv
+    Set DATABASE_URL="postgresql://postgres:<password>@localhost:5432/tryon" in the project's .env
+    (one folder up), or in the environment, which wins over .env.
 
 RUN (from inside the superbalist/ folder)
     python sync_catalogue.py
@@ -27,8 +28,11 @@ Reuses the parser from superbalist_catalogue.py (extract_products + normalise).
 import os
 import sys
 import time
+from pathlib import Path
+
 import requests
 import psycopg2
+from dotenv import load_dotenv
 from psycopg2.extras import execute_values, Json
 
 from superbalist_catalogue import extract_products, normalise
@@ -41,6 +45,7 @@ except ImportError:
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")   # the project's .env; never overrides real env vars
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/tryon")
 
 MAX_PAGES = 60          # safety cap per category; the loop stops earlier when a page is empty

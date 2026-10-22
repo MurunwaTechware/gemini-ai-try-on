@@ -11,8 +11,9 @@ Runs next to the try-on backend:
     this products API          ->  http://localhost:8001
 
 SETUP
-    pip install fastapi "uvicorn[standard]" psycopg2-binary requests
-    $env:DATABASE_URL = "postgresql://postgres:<password>@localhost:5432/tryon"
+    pip install fastapi "uvicorn[standard]" psycopg2-binary requests python-dotenv
+    Put DATABASE_URL in the project's .env (one folder up); catalogue_db.py loads it.
+    For Cloud SQL, run the Cloud SQL Auth Proxy so the database is on localhost:5432.
 
 RUN (from inside the superbalist/ folder)
     python -m uvicorn products_api:app --reload --port 8001

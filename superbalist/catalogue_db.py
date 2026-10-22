@@ -5,8 +5,9 @@ Clean Python functions the API calls instead of writing SQL inline.
 All the grid/browse/filter/search/paginate/single-product queries live here.
 
 SETUP
-    pip install psycopg2-binary
-    $env:DATABASE_URL = "postgresql://user:pass@host:5432/dbname"   # PowerShell
+    pip install psycopg2-binary python-dotenv
+    Set DATABASE_URL="postgresql://user:pass@host:5432/dbname" in the project's .env (one folder up),
+    or in the environment, which wins over .env.
 
 USAGE
     import catalogue_db as db
@@ -24,9 +25,13 @@ FILTER RULES (what each filter actually matches)
 """
 
 import os
+from pathlib import Path
+
 import psycopg2
+from dotenv import load_dotenv
 from psycopg2.extras import RealDictCursor
 
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")   # the project's .env; never overrides real env vars
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/tryon")
 PAGE_SIZE = 24
 
