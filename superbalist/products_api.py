@@ -1,33 +1,31 @@
 """
-Phase 2 — Temporary products API (FastAPI)
-==========================================
-A thin HTTP layer over your existing Phase-1 code. It exposes the Superbalist
-catalogue to the Lovable frontend as JSON, shaped to the frontend's needs.
+Products API (FastAPI)
+======================
+A thin HTTP layer over the Superbalist catalogue. It exposes products to the
+frontend as JSON. It stores nothing itself: every request reads Postgres (via
+catalogue_db.py) and, for an opened product, Superbalist live (via
+superbalist_product.py).
 
-It does NOT touch your colleague's try-on backend. Run them side by side:
-    colleague's gemini-ai-try-on  ->  http://localhost:8000
-    this products API             ->  http://localhost:8001
-
-WHAT IT WRAPS (nothing is rewritten — these stay in Python, as planned):
-    catalogue_db.py        -> grid / browse / filter / search / single row
-    superbalist_product.py -> on-demand description, material, sizes, colours
+Runs next to the try-on backend:
+    gemini-ai-try-on (main.py) ->  http://localhost:8000
+    this products API          ->  http://localhost:8001
 
 SETUP
     pip install fastapi "uvicorn[standard]" psycopg2-binary requests
-    # PowerShell:
-    $env:DATABASE_URL = "postgresql://postgres:tryondev2026@localhost:5432/tryon"
+    $env:DATABASE_URL = "postgresql://postgres:<password>@localhost:5432/tryon"
 
-RUN
+RUN (from inside the superbalist/ folder)
     python -m uvicorn products_api:app --reload --port 8001
-    # open http://localhost:8001/docs  for the interactive API browser
+    # http://localhost:8001/docs  -> interactive API browser
 
 ENDPOINTS
-    GET /products                 grid, with filters + pagination
-    GET /products/{id}            one product, incl. on-demand detail
-    GET /products/{id}/sizes      live sizes/stock only (fast)
-    GET /brands                   distinct brands (the "stores" page)
-    GET /categories               distinct categories (filter menu)
-    GET /health                   quick DB check
+    GET /products                 grid: filters + search + sort + pagination
+    GET /products/{id}            one product + on-demand detail
+    GET /products/{id}/sizes      live sizes/stock only
+    GET /brands                   brand names (list of strings)
+    GET /brands/cards             brand name + product count + cover image
+    GET /categories               categories, optionally scoped to gender/brand
+    GET /health                   DB check
 """
 
 from __future__ import annotations
@@ -42,10 +40,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import catalogue_db as db
 from superbalist_product import get_product_details, fetch_sizes
 
-app = FastAPI(title="Superbalist Products API", version="0.1.0")
+app = FastAPI(title="Superbalist Products API", version="0.2.0")
 
-# The Vite dev server (localhost:8080) and Lovable preview call this directly.
-# In production you'd narrow this; for local dev we allow the frontend origins.
 _ALLOWED = [
     o.strip()
     for o in os.environ.get(
@@ -63,19 +59,13 @@ app.add_middleware(
 
 
 # ---------------------------------------------------------------------------
-# Row -> frontend Product shape
+# Row -> frontend shape
 # ---------------------------------------------------------------------------
-# Frontend `Product` type (src/lib/shop-store.ts):
-#   { id, name, brand, price, img, retailer, category,
-#     fit, description, sizes, materials, care, tailorTips }
-# We fill what the catalogue knows; fit/tailorTips are try-on features that
-# don't exist yet, so they're returned null/empty and the UI hides them.
 def _num(v):
     return float(v) if isinstance(v, Decimal) else v
 
 
 def _first_image(images):
-    """images is JSONB: a list of {full, thumb}. Return the best single URL."""
     if isinstance(images, list) and images:
         first = images[0]
         if isinstance(first, dict):
@@ -84,7 +74,6 @@ def _first_image(images):
 
 
 def _to_card(row: dict) -> dict:
-    """The lightweight shape used in grids / store pages / marketplace."""
     return {
         "id": str(row["id"]),
         "name": row.get("name"),
@@ -96,11 +85,11 @@ def _to_card(row: dict) -> dict:
         "img": _first_image(row.get("images")),
         "retailer": "Superbalist",
         "category": row.get("category"),
+        "subcategory": row.get("subcategory"),
         "gender": row.get("gender"),
         "colour": row.get("colour"),
         "url": row.get("url"),
-        # try-on feature — not available until the AI backend scores a fit
-        "fit": None,
+        "fit": None,  # filled in later by the try-on backend
     }
 
 
@@ -116,29 +105,20 @@ def list_products(
     colour: Optional[str] = None,
     min_price: Optional[float] = None,
     max_price: Optional[float] = None,
-    q: Optional[str] = Query(None, description="free-text name search"),
+    q: Optional[str] = Query(None, description="search name or brand"),
     sort: str = "newest",
-    page: int = 1,
+    page: int = Query(1, ge=1),
     page_size: int = Query(24, ge=1, le=100),
 ):
-    """The main grid. Any filter left out is ignored.
-    If `q` is given it runs a name search (other filters except gender ignored)."""
-    if q:
-        rows = db.search(q, gender=gender, page=page, page_size=page_size)
-        items = [_to_card(r) for r in rows]
-        # search() doesn't count; report page length so the UI can page by feel
-        return {"items": items, "page": page, "page_size": page_size,
-                "total": None, "query": q}
-
-    rows = db.browse(
+    """The main grid. Every filter is optional and they all combine —
+    including the search box."""
+    filters = dict(
         gender=gender, category=category, subcategory=subcategory,
         brand=brand, colour=colour, min_price=min_price, max_price=max_price,
-        sort=sort, page=page, page_size=page_size,
+        q=(q or "").strip() or None,
     )
-    total = db.count(
-        gender=gender, category=category, subcategory=subcategory,
-        brand=brand, colour=colour, min_price=min_price, max_price=max_price,
-    )
+    rows = db.browse(**filters, sort=sort, page=page, page_size=page_size)
+    total = db.count(**filters)
     return {
         "items": [_to_card(r) for r in rows],
         "page": page,
@@ -156,40 +136,32 @@ def product_detail(
     product_id: int,
     detail: bool = Query(True, description="fetch live description/material/sizes/colours"),
 ):
-    """Product page payload. The base row is instant (from the DB); the
-    description, material, colour options and live sizes are fetched on demand
-    from Superbalist the moment the product is opened."""
     row = db.get_product(product_id)
     if not row:
         raise HTTPException(status_code=404, detail="product not found")
 
     out = _to_card(row)
-    # carry the full image list for the product gallery
     imgs = row.get("images")
-    out["images"] = [i.get("full") for i in imgs if isinstance(i, dict)] if isinstance(imgs, list) else []
-
-    # defaults for the detail fields so the UI always has the keys
+    out["images"] = [i.get("full") for i in imgs if isinstance(i, dict) and i.get("full")] if isinstance(imgs, list) else []
     out.update({
         "description": None,
         "material": None,
         "sizes": [],
+        "sizesDetail": [],
         "inStockSizes": [],
         "colourOptions": [],
         "modelFit": None,
-        # invented tailoring feature in the mock — no real data source yet
         "tailorTips": [],
     })
 
     if detail and row.get("url"):
-        d = get_product_details(
-            product_id, product_url=row["url"], name=row.get("name"),
-        )
+        d = get_product_details(product_id, product_url=row["url"], name=row.get("name"))
         out["description"] = d.get("description")
         out["material"] = d.get("material")
         out["modelFit"] = d.get("model_fit")
         out["colourOptions"] = d.get("colour_options") or []
         out["sizes"] = [s.get("size") for s in (d.get("sizes") or []) if s.get("size")]
-        out["sizesDetail"] = d.get("sizes") or []        # size + live stock/price
+        out["sizesDetail"] = d.get("sizes") or []
         out["inStockSizes"] = d.get("in_stock_sizes") or []
         if d.get("colour") and not out.get("colour"):
             out["colour"] = d["colour"]
@@ -199,7 +171,6 @@ def product_detail(
 
 @app.get("/products/{product_id}/sizes")
 def product_sizes(product_id: int):
-    """Live sizes/stock only — cheap, for a size picker that refreshes."""
     row = db.get_product(product_id)
     if not row:
         raise HTTPException(status_code=404, detail="product not found")
@@ -208,24 +179,32 @@ def product_sizes(product_id: int):
 
 
 # ---------------------------------------------------------------------------
-# Filter menus / "stores" (brands)
+# Brands / categories
 # ---------------------------------------------------------------------------
 @app.get("/brands")
 def brands(gender: Optional[str] = None):
-    """Distinct brands — this powers the Stores page (brands ARE the stores
-    on Superbalist, since there's only one retailer)."""
+    """Brand names only (used to resolve /stores/<slug> back to a brand)."""
     return {"brands": db.distinct_brands(gender)}
 
 
+@app.get("/brands/cards")
+def brand_cards(gender: Optional[str] = None):
+    """For the Brands page: each brand with its product count and a cover
+    image taken from one of its own products."""
+    return {"brands": [
+        {"name": r["name"], "count": r["count"], "img": r["img"]}
+        for r in db.brand_cards(gender)
+    ]}
+
+
 @app.get("/categories")
-def categories(gender: Optional[str] = None):
-    return {"categories": db.distinct_categories(gender)}
+def categories(gender: Optional[str] = None, brand: Optional[str] = None):
+    return {"categories": db.distinct_categories(gender, brand)}
 
 
 @app.get("/health")
 def health():
     try:
-        n = db.count()
-        return {"ok": True, "products": n}
-    except Exception as e:  # noqa: BLE001  — surface the DB error plainly in dev
+        return {"ok": True, "products": db.count()}
+    except Exception as e:  # noqa: BLE001
         raise HTTPException(status_code=503, detail=f"db unavailable: {e}")

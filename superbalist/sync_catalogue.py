@@ -1,24 +1,31 @@
 """
-Phase 1 — Nightly catalogue sync job (Postgres)
-===============================================
-Walks the category registry, parses each grid page (free, server-rendered),
-and UPSERTS the products into the `products` table. No per-product SKU calls,
-so no rate limits. Run nightly via cron / Task Scheduler.
+Nightly catalogue sync job (Postgres)
+=====================================
+Walks every clothing category page on Superbalist, parses each grid page
+(free, server-rendered), and UPSERTS the products into the `products` table.
+
+WHAT CHANGED (v2)
+    - Pages through each category UNTIL IT RUNS OUT (was: only 3 pages), so a
+      brand like Factorie now gets all its products, not just the few that
+      happened to appear on the first 3 pages.
+    - The category list now comes from category_urls.py (written by
+      discover_categories.py), so there's one list to maintain.
+    - Retries politely on HTTP 429 (rate limit) instead of skipping the rest
+      of the category.
 
 SETUP
     pip install requests psycopg2-binary
-    psql "$DATABASE_URL" -f schema.sql          # once, to create the table
-    export DATABASE_URL="postgresql://user:pass@host:5432/dbname"
+    $env:DATABASE_URL = "postgresql://postgres:<password>@localhost:5432/tryon"
 
-RUN
+RUN (from inside the superbalist/ folder)
     python sync_catalogue.py
+    # first full run takes a while (tens of minutes) — that's expected
 
-Reuses the validated parser from superbalist_catalogue.py (extract_products +
-normalise), so the two never drift apart — keep that file alongside this one.
+Reuses the parser from superbalist_catalogue.py (extract_products + normalise).
 """
 
 import os
-import json
+import sys
 import time
 import requests
 import psycopg2
@@ -26,112 +33,20 @@ from psycopg2.extras import execute_values, Json
 
 from superbalist_catalogue import extract_products, normalise
 
+try:
+    from category_urls import CATEGORY_URLS
+except ImportError:
+    sys.exit("category_urls.py not found — run:  python discover_categories.py  first.")
+
 # ---------------------------------------------------------------------------
 # CONFIG
 # ---------------------------------------------------------------------------
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/tryon")
 
-# Category registry — the pages the sync walks. Add any /browse/... path.
-# gender/category/subcategory are derived per-product from each path, so this
-# list only needs the URLs.
-CATEGORY_URLS = [
-    # men (15)
-    "https://superbalist.com/browse/men/formalwear/formal-pants",
-    "https://superbalist.com/browse/men/formalwear/formal-shirts",
-    "https://superbalist.com/browse/men/formalwear/jackets-blazers",
-    "https://superbalist.com/browse/men/jackets-coats/jackets",
-    "https://superbalist.com/browse/men/jeans-pants-shorts/jeans",
-    "https://superbalist.com/browse/men/jeans-pants-shorts/pants-chinos",
-    "https://superbalist.com/browse/men/jeans-pants-shorts/shorts",
-    "https://superbalist.com/browse/men/sport/hoodies-sweats-jackets",
-    "https://superbalist.com/browse/men/sport/sweatpants-shorts",
-    "https://superbalist.com/browse/men/sport/t-shirts",
-    "https://superbalist.com/browse/men/swimwear/swimwear",
-    "https://superbalist.com/browse/men/tops/hoodies-sweats",
-    "https://superbalist.com/browse/men/tops/knitwear",
-    "https://superbalist.com/browse/men/tops/shirts",
-    "https://superbalist.com/browse/men/tops/t-shirts-vests",
-    # women (33)
-    "https://superbalist.com/browse/women/bottoms/jeans",
-    "https://superbalist.com/browse/women/bottoms/shorts",
-    "https://superbalist.com/browse/women/bottoms/skirts",
-    "https://superbalist.com/browse/women/bottoms/trousers",
-    "https://superbalist.com/browse/women/dresses/casual",
-    "https://superbalist.com/browse/women/dresses/formal",
-    "https://superbalist.com/browse/women/dresses/jumpsuits-playsuits",
-    "https://superbalist.com/browse/women/dresses/occasion",
-    "https://superbalist.com/browse/women/jackets-coats/coats",
-    "https://superbalist.com/browse/women/jackets-coats/jackets",
-    "https://superbalist.com/browse/women/maternity/bottoms",
-    "https://superbalist.com/browse/women/maternity/dresses-jumpsuits",
-    "https://superbalist.com/browse/women/maternity/jackets-coats",
-    "https://superbalist.com/browse/women/maternity/tops",
-    "https://superbalist.com/browse/women/plus-size/bottoms-skirts",
-    "https://superbalist.com/browse/women/plus-size/dresses",
-    "https://superbalist.com/browse/women/plus-size/jackets-coats",
-    "https://superbalist.com/browse/women/plus-size/jeans",
-    "https://superbalist.com/browse/women/plus-size/sleepwear",
-    "https://superbalist.com/browse/women/plus-size/swimwear",
-    "https://superbalist.com/browse/women/plus-size/tops",
-    "https://superbalist.com/browse/women/sport/bottoms",
-    "https://superbalist.com/browse/women/sport/hoodies-sweats-jackets",
-    "https://superbalist.com/browse/women/sport/plus-size",
-    "https://superbalist.com/browse/women/sport/t-shirts",
-    "https://superbalist.com/browse/women/swimwear/bikinis",
-    "https://superbalist.com/browse/women/swimwear/kaftans-cover-ups",
-    "https://superbalist.com/browse/women/swimwear/one-piece",
-    "https://superbalist.com/browse/women/tops/blouses",
-    "https://superbalist.com/browse/women/tops/hoodies-sweats",
-    "https://superbalist.com/browse/women/tops/knitwear",
-    "https://superbalist.com/browse/women/tops/shirts",
-    "https://superbalist.com/browse/women/tops/t-shirts-vests-camis",
-    # kids (41)
-    "https://superbalist.com/browse/kids/baby-boys-0-2/babygrows-sleepsuits",
-    "https://superbalist.com/browse/kids/baby-boys-0-2/jackets-knitwear",
-    "https://superbalist.com/browse/kids/baby-boys-0-2/pants-jeans",
-    "https://superbalist.com/browse/kids/baby-boys-0-2/sets",
-    "https://superbalist.com/browse/kids/baby-boys-0-2/shorts",
-    "https://superbalist.com/browse/kids/baby-boys-0-2/swimwear",
-    "https://superbalist.com/browse/kids/baby-boys-0-2/tops",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/babygrows-sleepsuits",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/dresses-skirts",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/jackets-knitwear",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/pants-jeans",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/sets",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/shorts",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/swimwear",
-    "https://superbalist.com/browse/kids/baby-girls-0-2/tops",
-    "https://superbalist.com/browse/kids/boys-2-8/jackets-knitwear",
-    "https://superbalist.com/browse/kids/boys-2-8/pants-jeans",
-    "https://superbalist.com/browse/kids/boys-2-8/sets",
-    "https://superbalist.com/browse/kids/boys-2-8/shorts",
-    "https://superbalist.com/browse/kids/boys-2-8/swimwear",
-    "https://superbalist.com/browse/kids/boys-2-8/tops",
-    "https://superbalist.com/browse/kids/boys-8-16/jackets-knitwear",
-    "https://superbalist.com/browse/kids/boys-8-16/pants-jeans",
-    "https://superbalist.com/browse/kids/boys-8-16/sets",
-    "https://superbalist.com/browse/kids/boys-8-16/shorts",
-    "https://superbalist.com/browse/kids/boys-8-16/swimwear",
-    "https://superbalist.com/browse/kids/boys-8-16/tops",
-    "https://superbalist.com/browse/kids/girls-2-8/dresses-skirts",
-    "https://superbalist.com/browse/kids/girls-2-8/jackets-knitwear",
-    "https://superbalist.com/browse/kids/girls-2-8/pants-jeans",
-    "https://superbalist.com/browse/kids/girls-2-8/sets",
-    "https://superbalist.com/browse/kids/girls-2-8/shorts",
-    "https://superbalist.com/browse/kids/girls-2-8/swimwear",
-    "https://superbalist.com/browse/kids/girls-2-8/tops",
-    "https://superbalist.com/browse/kids/girls-8-16/dresses-skirts",
-    "https://superbalist.com/browse/kids/girls-8-16/jackets-knitwear",
-    "https://superbalist.com/browse/kids/girls-8-16/pants-jeans",
-    "https://superbalist.com/browse/kids/girls-8-16/sets",
-    "https://superbalist.com/browse/kids/girls-8-16/shorts",
-    "https://superbalist.com/browse/kids/girls-8-16/swimwear",
-    "https://superbalist.com/browse/kids/girls-8-16/tops",
-    # ... extend freely
-]
-
-MAX_PAGES = 3          # pages to pull per category (each ~72 products)
-PAGE_DELAY = 1.0       # polite pause between page fetches (seconds)
+MAX_PAGES = 60          # safety cap per category; the loop stops earlier when a page is empty
+PAGE_DELAY = 1.2        # polite pause between page fetches (seconds)
+RETRY_429 = 3           # how many times to retry a rate-limited page
+BACKOFF_429 = 20        # seconds to wait after a 429 (doubles each retry)
 
 HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -160,36 +75,57 @@ ON CONFLICT (id) DO UPDATE SET
     images      = EXCLUDED.images,
     last_synced = now();
 """
-# Each VALUES row supplies 13 fields; last_synced is set by now() in the template.
 VALUES_TEMPLATE = "(" + ",".join(["%s"] * 13) + ", now())"
 
 
 # ---------------------------------------------------------------------------
 # Fetch + parse
 # ---------------------------------------------------------------------------
+def fetch_page(session, page_url):
+    """GET one grid page. Retries on 429 with backoff. Returns HTML or None."""
+    wait = BACKOFF_429
+    for attempt in range(RETRY_429 + 1):
+        try:
+            resp = session.get(page_url, headers=HEADERS, timeout=25)
+        except requests.exceptions.RequestException as e:
+            print(f"    network error: {e}")
+            return None
+        if resp.status_code == 429 and attempt < RETRY_429:
+            print(f"    rate-limited — waiting {wait}s and retrying")
+            time.sleep(wait)
+            wait *= 2
+            continue
+        if resp.status_code >= 400:
+            print(f"    HTTP {resp.status_code} — skipping rest of category")
+            return None
+        return resp.text
+    return None
+
+
 def fetch_category(url, session):
-    """Pull every product across MAX_PAGES of one category. Returns clean rows."""
-    out = []
+    """Pull every product in one category, page by page, until a page is empty."""
+    out, seen = [], set()
     for page in range(1, MAX_PAGES + 1):
         page_url = url if page == 1 else f"{url}?page={page}"
-        try:
-            resp = session.get(page_url, headers=HEADERS, timeout=20)
-            resp.raise_for_status()
-        except requests.exceptions.RequestException as e:
-            print(f"    page {page} failed: {e}")
+        html = fetch_page(session, page_url)
+        if html is None:
             break
-
-        products = extract_products(resp.text)
+        products = extract_products(html)
         if not products:
-            break   # no more pages
-        out.extend(normalise(p) for p in products)
-        print(f"    page {page}: {len(products)} products")
+            break                                   # ran out of pages
+        new = [normalise(p) for p in products]
+        fresh = [e for e in new if e.get("id") not in seen]
+        if not fresh:
+            break                                   # site repeated the last page
+        for e in fresh:
+            seen.add(e.get("id"))
+        out.extend(fresh)
+        print(f"    page {page}: {len(fresh)} products")
         time.sleep(PAGE_DELAY)
     return out
 
 
 def row_tuple(entry):
-    """Map a normalised product dict to the column order in UPSERT_SQL."""
     return (
         entry.get("id"),
         entry.get("name"),
@@ -203,39 +139,39 @@ def row_tuple(entry):
         entry.get("subcategory"),
         entry.get("colour"),
         entry.get("url"),
-        Json(entry.get("images") or []),   # list[{full,thumb}] -> JSONB
+        Json(entry.get("images") or []),
     )
+
+
+def upsert(conn, rows):
+    with conn, conn.cursor() as cur:
+        execute_values(cur, UPSERT_SQL, rows, template=VALUES_TEMPLATE, page_size=200)
 
 
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 def main():
+    started = time.time()
     session = requests.Session()
-    all_rows = {}    # id -> row dict (dedupe across categories)
-
-    for url in CATEGORY_URLS:
-        print(f"\nSyncing {url}")
-        for entry in fetch_category(url, session):
-            pid = entry.get("id")
-            if pid is not None:
-                all_rows[pid] = entry
-
-    rows = [row_tuple(e) for e in all_rows.values()]
-    print(f"\nTotal unique products to upsert: {len(rows)}")
-    if not rows:
-        print("Nothing to write. Check the category URLs.")
-        return
-
     conn = psycopg2.connect(DATABASE_URL)
+    total_written = 0
     try:
-        with conn, conn.cursor() as cur:
-            execute_values(cur, UPSERT_SQL, rows, template=VALUES_TEMPLATE, page_size=200)
-        # conn commits on exiting the `with conn` block
+        for i, url in enumerate(CATEGORY_URLS, 1):
+            print(f"\n[{i}/{len(CATEGORY_URLS)}] {url}")
+            entries = [e for e in fetch_category(url, session) if e.get("id") is not None]
+            if entries:
+                # write per category, so a crash halfway keeps what's done
+                upsert(conn, [row_tuple(e) for e in entries])
+                total_written += len(entries)
+                print(f"    saved {len(entries)}")
+
         with conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM products;")
             total = cur.fetchone()[0]
-        print(f"Upsert complete. products table now holds {total} rows.")
+        mins = (time.time() - started) / 60
+        print(f"\nDone in {mins:.1f} min. Upserted {total_written} rows; "
+              f"products table now holds {total}.")
     finally:
         conn.close()
 
