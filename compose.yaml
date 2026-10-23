@@ -13,6 +13,13 @@
 #   WEB_PORT      host port for the web server (default 8000)
 #   RESULTS_DIR   host folder for uploads and results (default ./results)
 #   GCLOUD_ADC    path to the Google login file, if it isn't in the default place
+#
+# Products (Superbalist catalogue): the products API on http://localhost:8001 and the Cloud SQL Auth
+# Proxy it reads the database through. Off unless the "products" profile is on, so `docker compose up`
+# works for people without access to the database. To include them:
+#   docker compose --profile products up --build
+# or set COMPOSE_PROFILES=products in .env to make it the default. Needs CLOUD_SQL_INSTANCE and
+# DATABASE_URL in .env (see .env.example).
 
 x-app: &app
   build: .
@@ -58,6 +65,35 @@ services:
   worker:
     <<: *app
     command: ["python", "worker.py"]
+
+  # ── Products (profile "products") ───────────────────────────────────────────
+
+  # Makes the Cloud SQL database appear on localhost:5432, logged in with the same Google login as the app
+  cloudsql-proxy:
+    image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2
+    profiles: ["products"]
+    restart: unless-stopped
+    command: ["--address", "0.0.0.0", "--port", "5432", "--credentials-file", "/gcloud/adc.json",
+              "${CLOUD_SQL_INSTANCE:-}"]   # the instance's connection name, e.g. project:region:instance
+    ports:
+      # The database, for psql or the sync script run outside Docker. Only this computer can connect.
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - ${GCLOUD_ADC:-${APPDATA:-~/.config}/gcloud/application_default_credentials.json}:/gcloud/adc.json:ro
+
+  products-api:
+    build: ./superbalist
+    image: tryon-products
+    profiles: ["products"]
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # DATABASE_URL in .env says localhost:5432 (right outside Docker); in here the proxy is this service
+      DATABASE_HOST: cloudsql-proxy
+    ports:
+      - "127.0.0.1:8001:8001"
+    depends_on:
+      - cloudsql-proxy
 
 volumes:
   rabbitmq-data:

@@ -25,15 +25,22 @@ FILTER RULES (what each filter actually matches)
 """
 
 import os
+import queue
+import threading
 from pathlib import Path
 
 import psycopg2
 from dotenv import load_dotenv
+from psycopg2 import InterfaceError, OperationalError
 from psycopg2.extras import RealDictCursor
 
 load_dotenv(Path(__file__).resolve().parent.parent / ".env")   # the project's .env; never overrides real env vars
 DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/tryon")
+# Replaces only the host in DATABASE_URL. compose.yaml sets it to the proxy's service name, so the one
+# DATABASE_URL in .env (localhost:5432) works both outside Docker and inside it.
+DATABASE_HOST = os.environ.get("DATABASE_HOST")
 PAGE_SIZE = 24
+POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "8"))   # connections kept open; the db-g1-small allows 50 in all
 
 # Allowed sort options -> SQL ORDER BY (whitelist; never interpolate user input)
 _SORTS = {
@@ -43,14 +50,49 @@ _SORTS = {
 }
 
 
-def _conn():
-    return psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+# Connections are kept and reused. Opening one to Cloud SQL takes a TLS handshake and login with the
+# instance (about 2.5 s from South Africa to us-east1), and many at once can fail; a reused one costs a
+# single round trip. Not psycopg2's own pool: that closes every connection above its minimum when it's
+# returned, and opens new ones while holding a lock, so a burst of requests queues behind handshakes.
+_idle = queue.LifoQueue()   # open connections not in use, at most POOL_SIZE; the most recently used is reused first
+_slots = threading.BoundedSemaphore(POOL_SIZE)   # at most POOL_SIZE in use; further queries wait for one
+
+
+def _connect():
+    return psycopg2.connect(
+        DATABASE_URL, cursor_factory=RealDictCursor,
+        **({"host": DATABASE_HOST} if DATABASE_HOST else {}),   # keyword settings override the URL's
+        # Probe idle connections, so ones the network drops are noticed rather than hanging
+        keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+    )
 
 
 def _run(sql, params=None):
-    with _conn() as conn, conn.cursor() as cur:
-        cur.execute(sql, params or [])
-        return cur.fetchall()
+    """Run one read query on a pooled connection. If the connection was dropped while idle, or opening
+    one fails, it's thrown away and the query tried once more on a newly opened connection."""
+    with _slots:
+        for attempt in (1, 2):
+            conn = None
+            broken = False
+            try:
+                try:
+                    conn = _idle.get_nowait() if attempt == 1 else _connect()
+                except queue.Empty:
+                    conn = _connect()
+                conn.autocommit = True   # reads only: no transaction left open between queries
+                with conn.cursor() as cur:
+                    cur.execute(sql, params or [])
+                    return cur.fetchall()
+            except (OperationalError, InterfaceError):
+                broken = True
+                if attempt == 2:
+                    raise
+            finally:
+                if conn is not None:
+                    if broken or conn.closed:
+                        conn.close()
+                    else:
+                        _idle.put(conn)
 
 
 def _escape_like(text):
