@@ -86,12 +86,19 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAI
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/datastore.user"
 ```
 
+People who also run the products API (`superbalist/`) need a fifth:
+
+```
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/cloudsql.client"
+```
+
 | Role | Shown in the console as | Why |
 |---|---|---|
 | `roles/aiplatform.user` | **Agent Platform User** (older pages: Vertex AI User) | Lets them call Gemini |
 | `roles/serviceusage.serviceUsageConsumer` | **Service Usage Consumer** | Lets their login bill usage to your project |
 | `roles/firebaseauth.admin` | **Firebase Authentication Admin** | Lets the server they run create and check sign-in sessions. Only needed by people running the server, not by people signing in to it |
 | `roles/datastore.user` | **Cloud Datastore User** | Lets the server they run read and write user records in Firestore. Also only for people running the server |
+| `roles/cloudsql.client` | **Cloud SQL Client** | Lets the Cloud SQL Auth Proxy connect to the products database. Reading data still needs the database password |
 
 Don't use **AI Platform Admin** (`roles/ml.admin`). Despite the name, it's for Google's retired AI Platform and doesn't include Gemini access. Avoid Owner or Editor too: those allow changing or deleting anything in the project. Usage by everyone counts against the project's billing account, so a budget alert (Billing → Budgets & alerts) is worth setting.
 
