@@ -23,6 +23,7 @@ ENDPOINTS
     GET /products                 grid: filters + search + sort + pagination
     GET /products/{id}            one product + on-demand detail
     GET /products/{id}/sizes      live sizes/stock only
+    GET /products/{id}/image/{n}  the product's n-th photo (0 = first), served from here
     GET /brands                   brand names (list of strings)
     GET /brands/cards             brand name + product count + cover image
     GET /categories               categories, optionally scoped to gender/brand
@@ -35,7 +36,8 @@ import os
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, Query
+import requests
+from fastapi import FastAPI, HTTPException, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 import catalogue_db as db
@@ -168,6 +170,33 @@ def product_detail(
             out["colour"] = d["colour"]
 
     return out
+
+
+# The try-on page needs a product photo as a file to upload. Superbalist's image server doesn't allow the
+# browser to read its photos from another site, so they come through here. The address is looked up from
+# the product's own row, never taken from the request, so this can't be pointed at any other site.
+_IMAGE_MAX_BYTES = 7 * 1024 * 1024   # the try-on backend's limit per image
+
+
+@app.get("/products/{product_id}/image/{n}")
+def product_image(product_id: int, n: int):
+    row = db.get_product(product_id)
+    if not row:
+        raise HTTPException(status_code=404, detail="product not found")
+    imgs = row.get("images")
+    urls = [i.get("full") for i in imgs if isinstance(i, dict) and i.get("full")] if isinstance(imgs, list) else []
+    if not 0 <= n < len(urls):
+        raise HTTPException(status_code=404, detail="image not found")
+    try:
+        r = requests.get(urls[n], timeout=15, headers={"User-Agent": "Mozilla/5.0"})
+    except requests.exceptions.RequestException:
+        raise HTTPException(status_code=502, detail="Couldn't download the product photo.")
+    ctype = r.headers.get("content-type", "").split(";")[0].strip().lower()
+    if r.status_code != 200 or ctype not in ("image/jpeg", "image/png", "image/webp"):
+        raise HTTPException(status_code=502, detail="Couldn't download the product photo.")
+    if len(r.content) > _IMAGE_MAX_BYTES:
+        raise HTTPException(status_code=413, detail="The product photo is over 7 MB.")
+    return Response(content=r.content, media_type=ctype, headers={"Cache-Control": "public, max-age=86400"})
 
 
 @app.get("/products/{product_id}/sizes")
