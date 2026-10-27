@@ -60,7 +60,19 @@ resource "google_pubsub_subscription" "measure_jobs_dead_letter" {
 }
 
 # Pub/Sub's own service account moves messages to the dead-letter topic, so it needs to
-# publish there and to acknowledge (remove) them from the original subscription
+# publish there and to acknowledge (remove) them from the original subscription.
+# Google only creates that account some time after Pub/Sub is first used, so create it here first;
+# otherwise granting it permissions fails with "service account ... does not exist" in a new project.
+resource "google_project_service_identity" "pubsub" {
+  provider   = google-beta
+  project    = var.project_id
+  service    = "pubsub.googleapis.com"
+  depends_on = [google_project_service.apis]
+}
+
+# The address is built from the project number, so it's known when planning (taking it from the resource
+# above would make Terraform re-create the permissions on every change). The permissions below wait for the
+# account with depends_on instead.
 locals {
   pubsub_service_agent = "serviceAccount:service-${data.google_project.this.number}@gcp-sa-pubsub.iam.gserviceaccount.com"
 }
@@ -70,6 +82,8 @@ resource "google_pubsub_topic_iam_member" "dead_letter_publisher" {
   topic   = google_pubsub_topic.measure_jobs_dead_letter.name
   role    = "roles/pubsub.publisher"
   member  = local.pubsub_service_agent
+
+  depends_on = [google_project_service_identity.pubsub]
 }
 
 resource "google_pubsub_subscription_iam_member" "dead_letter_subscriber" {
@@ -77,4 +91,6 @@ resource "google_pubsub_subscription_iam_member" "dead_letter_subscriber" {
   subscription = google_pubsub_subscription.measure_jobs_workers.name
   role         = "roles/pubsub.subscriber"
   member       = local.pubsub_service_agent
+
+  depends_on = [google_project_service_identity.pubsub]
 }

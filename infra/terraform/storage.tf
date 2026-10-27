@@ -13,6 +13,11 @@ resource "google_storage_bucket" "results" {
   # Refuse to delete the bucket while it still holds files, so a `terraform destroy` can't wipe data
   force_destroy = false
 
+  # And refuse any plan that would delete or replace it (e.g. after changing var.region)
+  lifecycle {
+    prevent_destroy = true
+  }
+
   dynamic "lifecycle_rule" {
     for_each = var.results_retention_days > 0 ? [1] : []
     content {

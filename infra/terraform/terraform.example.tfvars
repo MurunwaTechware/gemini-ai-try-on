@@ -5,7 +5,7 @@ region     = "africa-south1" # see the region notes in variables.tf
 
 # Optional (defaults shown)
 # name_prefix            = "tryon"
-# results_retention_days = 30
+# results_retention_days = 0          # 0 keeps files forever; e.g. 30 deletes ALL files (profiles, saved try-ons) after 30 days
 # max_delivery_attempts  = 5
 # alert_email            = "you@example.com"
 # products_sql_instance  = "post-1"   # existing Cloud SQL instance, only looked up

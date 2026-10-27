@@ -15,6 +15,12 @@ resource "google_firestore_database" "default" {
   # Never delete user records on `terraform destroy`; remove the database by hand if that's really meant.
   deletion_policy = "ABANDON"
 
+  # Its location can't change, so a different var.region would make Terraform plan to replace it (and a
+  # project's (default) database can't be recreated). Refuse instead: set region to the database's location.
+  lifecycle {
+    prevent_destroy = true
+  }
+
   depends_on = [google_project_service.apis]
 }
 
