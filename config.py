@@ -86,6 +86,10 @@ FIREBASE_AUTH_DOMAIN = os.getenv("FIREBASE_AUTH_DOMAIN", f"{FIREBASE_PROJECT_ID}
 # moved on or finished, from whichever worker ran it. Used with sign-in on or off. If Firestore can't be
 # reached, the page still finds the result by checking the job folder, a few seconds later.
 JOB_STATUS_ENABLED = os.getenv("JOB_STATUS_ENABLED", "true").lower() != "false" and bool(FIREBASE_PROJECT_ID)
+# Who may sign in: email addresses and whole domains (written "@techware.tech"), separated by commas. Checked at
+# sign-in and on every request, so removing someone takes effect at once. Empty: anyone with a Google account
+# or a verified email address can sign in (and use the project's Gemini quota).
+ALLOWED_EMAILS = {e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip()}
 # How long a sign-in lasts. Firebase allows 5 minutes to 14 days.
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "5"))
 # Session cookie is HTTPS-only. Chrome, Edge and Firefox treat http://localhost as secure, so this can

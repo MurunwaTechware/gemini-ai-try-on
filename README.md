@@ -52,6 +52,7 @@ Settings are read from `.env`. Only the first two are required, and only the fir
 | `GOOGLE_CLOUD_PROJECT` | (required) | Google Cloud project that runs and pays for the Gemini calls |
 | `FIREBASE_API_KEY` | (required) | Firebase web API key for sign-in. Public by design, but keep it in `.env` with the rest. Not needed with `AUTH_ENABLED=false` |
 | `AUTH_ENABLED` | `true` | `false` turns sign-in off for local development: everyone is the demo user. See [Sign-in](#sign-in) |
+| `ALLOWED_EMAILS` | (empty: anyone) | Who may sign in: addresses and whole domains, comma-separated, e.g. `@techware.tech,someone@gmail.com`. Checked on every request, so removing someone signs them out at once |
 | `FIREBASE_PROJECT_ID` | `GOOGLE_CLOUD_PROJECT` | Firebase project, if it's a different one |
 | `FIREBASE_AUTH_DOMAIN` | `<project>.firebaseapp.com` | Where Google's sign-in window comes from |
 | `SESSION_DAYS` | `5` | How long a sign-in lasts (Firebase allows up to 14) |
@@ -330,6 +331,9 @@ The server checks sign-ins with your Google Cloud login. Run `gcloud auth applic
 The server couldn't save the user record in Firestore. Its log says why, after `couldn't save the user record`:
 - **`Cloud Firestore API has not been used` or `SERVICE_DISABLED`**, or **`database (default) does not exist`**: the database hasn't been created. See step 6 of [Sign-in](#sign-in).
 - **`403` / `PERMISSION_DENIED`**: you're missing **Cloud Datastore User** (see [Access](#access)).
+
+### "This account doesn't have access to this app yet"
+The account's email isn't on `ALLOWED_EMAILS`. Add the address (or its `@domain`) to `ALLOWED_EMAILS` in `.env`, or in the Cloud Run service's settings once deployed, and restart. The server logs `sign-in refused, not on ALLOWED_EMAILS` with the address.
 
 ### Signed in, but sent straight back to the sign-in page
 

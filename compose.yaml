@@ -30,6 +30,7 @@ x-app: &app
     # RabbitMQ unless DOCKER_QUEUE_BACKEND=pubsub (in .env or the shell) uses the real Pub/Sub topics
     QUEUE_BACKEND: ${DOCKER_QUEUE_BACKEND:-rabbitmq}
     RABBITMQ_URL: amqp://guest:guest@rabbitmq:5672/   # "rabbitmq" = the service below
+    GOOGLE_APPLICATION_CREDENTIALS: /gcloud/adc.json   # your Google login, mounted below (not set in the image)
   volumes:
     # Windows keeps the login file under %APPDATA%; macOS/Linux under ~/.config
     - ${GCLOUD_ADC:-${APPDATA:-~/.config}/gcloud/application_default_credentials.json}:/gcloud/adc.json:ro

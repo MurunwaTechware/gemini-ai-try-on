@@ -69,6 +69,20 @@ def init() -> None:
         firebase_admin.get_app()
     except ValueError:   # not initialised yet. Credentials come from ADC, like the Gemini calls
         firebase_admin.initialize_app(options={"projectId": config.FIREBASE_PROJECT_ID})
+    if not config.ALLOWED_EMAILS:
+        log.warning("ALLOWED_EMAILS is empty: anyone with a Google account can sign in. List the people (or "
+                    "@domains) who may, before running this anywhere others can reach it.")
+
+
+def email_allowed(claims: dict) -> bool:
+    """Whether this sign-in's email is on ALLOWED_EMAILS, by address or by domain. Only verified emails count:
+    Google's always are, and email/password accounts must be verified before they get a session anyway."""
+    if not config.ALLOWED_EMAILS:
+        return True
+    email = (claims.get("email") or "").lower()
+    if not email or not claims.get("email_verified"):
+        return False
+    return email in config.ALLOWED_EMAILS or f"@{email.rpartition('@')[2]}" in config.ALLOWED_EMAILS
 
 
 def safe_next(path: str | None) -> str:
@@ -92,6 +106,8 @@ def _user_from_cookie(request: Request) -> User | None:
         return None   # expired, revoked, disabled or tampered with: same as not signed in
     if not jobs.USER_ID.fullmatch(claims["uid"]):
         log.warning("refusing UID that isn't safe as a folder name: %r", claims["uid"])
+        return None
+    if not email_allowed(claims):   # taken off ALLOWED_EMAILS since signing in: signed out from now on
         return None
     return User(uid=claims["uid"], email=claims.get("email"), name=claims.get("name"),
                 photo_url=claims.get("picture"))
@@ -168,6 +184,10 @@ def create_session(body: SessionRequest, response: Response):
     # Without this, anyone could sign up with someone else's address. Google and Apple verify emails themselves
     if claims["firebase"]["sign_in_provider"] == "password" and not claims.get("email_verified"):
         raise HTTPException(403, "Verify your email first: open the link we sent you, then sign in.")
+    if not email_allowed(claims):
+        log.info("sign-in refused, not on ALLOWED_EMAILS: %s", claims.get("email"))
+        raise HTTPException(403, "This account doesn't have access to this app yet. Ask the team to add your "
+                                 "email address.")
 
     try:
         user_store.record_sign_in(claims)
