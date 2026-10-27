@@ -28,7 +28,16 @@ MAX_OUTPUTS = 4                          # the repo fired 10; 4 is plenty for a 
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
 GARMENT_SLOTS = ("top", "bottom", "headwear", "eyewear")   # order they are sent to the model
 
+# Where uploads and results are kept (storage.py):
+#   "local": a folder, RUNS_DIR. With a queue, the web server and workers must share it (Docker Compose mounts it)
+#   "gcs":   the Cloud Storage bucket RESULTS_BUCKET, so the web server and workers can run on different machines
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")
+if STORAGE_BACKEND not in ("local", "gcs"):
+    raise RuntimeError(f"STORAGE_BACKEND must be 'local' or 'gcs', not {STORAGE_BACKEND!r}.")
 RUNS_DIR = Path(os.getenv("RUNS_DIR", Path(__file__).parent / "results"))
+RESULTS_BUCKET = os.getenv("RESULTS_BUCKET")   # Terraform output results_bucket
+if STORAGE_BACKEND == "gcs" and not RESULTS_BUCKET:
+    raise RuntimeError("STORAGE_BACKEND=gcs needs RESULTS_BUCKET (the bucket's name) in .env.")
 
 # Where measurement jobs run:
 #   "inprocess": a background task inside the web server; nothing else to run

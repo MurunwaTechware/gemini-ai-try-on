@@ -5,11 +5,13 @@ Every route works on the user from the session cookie only. Folders are looked u
 own folder, so someone else's job or run ID gives 404, the same as one that doesn't exist.
 """
 import json
+import mimetypes
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from fastapi.responses import FileResponse, JSONResponse
 from firebase_admin import auth as fb_auth
 from pydantic import BaseModel
@@ -20,6 +22,7 @@ import prompts
 import user_store
 from auth import User, current_user, page_user, same_origin
 from models.Entities.Users import User as UserRecord   # the stored record; auth.User is only who's signed in
+from storage import StoredPath
 
 STATIC = Path(__file__).parent / "static"
 IMAGE_NAME = re.compile(r"[a-z]+\.(jpe?g|png|webp)")   # front.jpg, result.png; never the JSON or prompt
@@ -92,7 +95,7 @@ def sign_in_methods(user: User = Depends(current_user)):
 
 # ── Measurement profiles and try-ons ──────────────────────────────────────────
 
-def _read_json(path: Path) -> dict | None:
+def _read_json(path: StoredPath) -> dict | None:
     try:
         return json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):   # missing, or still being written
@@ -104,7 +107,7 @@ def _created(item_id: str) -> str:
     return datetime.strptime(item_id[:15], "%Y%m%d-%H%M%S").isoformat()
 
 
-def _folders(user: User, kind: str) -> list[Path]:
+def _folders(user: User, kind: str) -> list[StoredPath]:
     """The user's measurement profile or try-on folders, newest first."""
     base = jobs.user_dir(user.uid) / kind
     if not base.is_dir():
@@ -112,52 +115,79 @@ def _folders(user: User, kind: str) -> list[Path]:
     return sorted((d for d in base.iterdir() if d.is_dir() and jobs.JOB_ID.fullmatch(d.name)), reverse=True)
 
 
-def _file_url(kind: str, path: Path) -> str:
+def _file_url(kind: str, path: StoredPath) -> str:
     return f"/me/files/{kind}/{path.parent.name}/{path.name}"   # served by own_file below
 
 
-def _image(kind: str, folder: Path, stem: str) -> str | None:
-    path = next(folder.glob(f"{stem}.*"), None)
-    return _file_url(kind, path) if path else None
+def _files(folder: StoredPath) -> dict[str, StoredPath]:
+    """The files in one profile or try-on folder, by name. One listing, rather than a lookup per file:
+    with the bucket, each lookup is a network call."""
+    return {p.name: p for p in folder.iterdir() if p.is_file()}
 
 
-def _profile(folder: Path) -> dict:
-    measurement = _read_json(folder / jobs.MEASUREMENT_FILE)
-    error = _read_json(folder / jobs.ERROR_FILE)
+def _json(files: dict[str, StoredPath], name: str) -> dict | None:
+    return _read_json(files[name]) if name in files else None
+
+
+def _image(kind: str, files: dict[str, StoredPath], stem: str) -> str | None:
+    """The address of <stem>.* (front.jpg, result.png...), if the folder has one."""
+    name = next((n for n in sorted(files) if n.startswith(f"{stem}.")), None)
+    return _file_url(kind, files[name]) if name else None
+
+
+def _each(build, folders: list[StoredPath]) -> list[dict]:
+    """build(folder) for every folder, a few at a time (bucket reads wait on the network), in order."""
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return list(pool.map(build, folders))
+
+
+def _profile(folder: StoredPath) -> dict:
+    files = _files(folder)
+    measurement = _json(files, jobs.MEASUREMENT_FILE)
+    error = _json(files, jobs.ERROR_FILE)
     return {
         "job_id": folder.name,
         "created": _created(folder.name),
         # "measuring" also covers a job that was interrupted and never finished
         "status": "ready" if measurement else "failed" if error else "measuring",
         "error": (error or {}).get("error"),
-        "inputs": _read_json(folder / jobs.INPUTS_FILE),
+        "inputs": _json(files, jobs.INPUTS_FILE),
         "body_shape": (measurement or {}).get("body_shape"),
-        "photo": _image(jobs.PROFILES_DIR, folder, "front"),
+        "photo": _image(jobs.PROFILES_DIR, files, "front"),
         # All three views, for pages that show every photo from the scan
-        "photos": {view: _image(jobs.PROFILES_DIR, folder, view) for view in prompts.MEASURE_VIEWS},
+        "photos": {view: _image(jobs.PROFILES_DIR, files, view) for view in prompts.MEASURE_VIEWS},
+        "_measurement": measurement,   # for the download; removed from the API's answer
     }
 
 
-def _saved_tryon(folder: Path) -> dict:
-    garments = {slot: _image(jobs.TRYONS_DIR, folder, slot) for slot in config.GARMENT_SLOTS}
+def _saved_tryon(folder: StoredPath) -> dict:
+    files = _files(folder)
+    garments = {slot: _image(jobs.TRYONS_DIR, files, slot) for slot in config.GARMENT_SLOTS}
+    prompt = files.get("prompt.txt")
     return {
         "saved_id": folder.name,
         "saved": _created(folder.name),
-        "measurement_profile": (_read_json(folder / jobs.TRYON_META_FILE) or {}).get("measurement_profile"),
-        "result": _image(jobs.TRYONS_DIR, folder, "result"),
-        "person": _image(jobs.TRYONS_DIR, folder, "person"),
+        "measurement_profile": (_json(files, jobs.TRYON_META_FILE) or {}).get("measurement_profile"),
+        "result": _image(jobs.TRYONS_DIR, files, "result"),
+        "person": _image(jobs.TRYONS_DIR, files, "person"),
         "garments": {slot: url for slot, url in garments.items() if url},
+        "_prompt": prompt,   # for the download only, which reads it
     }
+
+
+def _public(item: dict) -> dict:
+    """Without the fields only the download includes (their names start with _)."""
+    return {k: v for k, v in item.items() if not k.startswith("_")}
 
 
 @router.get("/me/measurement-profiles")
 def measurement_profiles(user: User = Depends(current_user)):
-    return [_profile(f) for f in _folders(user, jobs.PROFILES_DIR)]
+    return [_public(p) for p in _each(_profile, _folders(user, jobs.PROFILES_DIR))]
 
 
 @router.get("/me/saved-tryons")
 def saved_tryons(user: User = Depends(current_user)):
-    return [_saved_tryon(f) for f in _folders(user, jobs.TRYONS_DIR)]
+    return [_public(t) for t in _each(_saved_tryon, _folders(user, jobs.TRYONS_DIR))]
 
 
 @router.get("/me/files/{kind}/{item_id}/{name}")
@@ -171,7 +201,11 @@ def own_file(kind: str, item_id: str, name: str, user: User = Depends(current_us
     if not path.is_file():
         raise HTTPException(404, "Not found.")
     # private: only this browser may cache it. Files never change once written.
-    return FileResponse(path, headers={"Cache-Control": "private, max-age=86400"})
+    headers = {"Cache-Control": "private, max-age=86400"}
+    if isinstance(path, Path):
+        return FileResponse(path, headers=headers)
+    # From the bucket: read and passed on (photos are a few MB at most)
+    return Response(path.read_bytes(), media_type=mimetypes.guess_type(name)[0], headers=headers)
 
 
 # ── Download ──────────────────────────────────────────────────────────────────
@@ -180,12 +214,10 @@ def own_file(kind: str, item_id: str, name: str, user: User = Depends(current_us
 def export(user: User = Depends(current_user)):
     """Everything kept about the user as one JSON file (POPIA lets people ask for this). Photos are
     listed by their address on this site rather than included."""
-    profiles = [{**_profile(f), "measurement": _read_json(f / jobs.MEASUREMENT_FILE)}
-                for f in _folders(user, jobs.PROFILES_DIR)]
-    saved = []
-    for f in _folders(user, jobs.TRYONS_DIR):
-        prompt = f / "prompt.txt"
-        saved.append({**_saved_tryon(f), "prompt": prompt.read_text(encoding="utf-8") if prompt.is_file() else None})
+    profiles = [{**_public(p), "measurement": p["_measurement"]}
+                for p in _each(_profile, _folders(user, jobs.PROFILES_DIR))]
+    saved = [{**_public(t), "prompt": t["_prompt"].read_text(encoding="utf-8") if t["_prompt"] else None}
+             for t in _each(_saved_tryon, _folders(user, jobs.TRYONS_DIR))]
     data = {
         "exported_at": datetime.now().astimezone().isoformat(timespec="seconds"),
         "account": _record(user).to_dict(),

@@ -4,8 +4,9 @@ Pages:  /login  ->  /  (upload + details)  ->  /measurements?job=ID  ->  /tryon?
 API:    POST /process_upload, GET /job_events/{id} (SSE), GET /measurements_data/{id},
         GET /defaults, POST /try-on, POST /try-on/save; sign-in routes are in auth.py, /account and /me... in account.py
 Everything except the sign-in routes and /static needs a signed-in user (auth.py). Each upload is a "job" with its own
-folder, RUNS_DIR/<user ID>/measurement_profiles/<job ID>. Generating a try-on keeps nothing; one the user saves goes in
-RUNS_DIR/<user ID>/saved_tryons/<ID>. The user ID always comes
+folder, <user ID>/measurement_profiles/<job ID>. Generating a try-on keeps nothing; one the user saves goes in
+<user ID>/saved_tryons/<ID>. Both are under storage.ROOT: a local folder or the Cloud Storage bucket (storage.py),
+whose calls block, so async routes make them in a thread. The user ID always comes
 from the session cookie, so one user can't reach another's jobs even with the job ID.
 Measurement jobs run in this process or on queue workers, depending on config.QUEUE_BACKEND.
 """
@@ -31,6 +32,7 @@ import jobs
 import prompts
 from auth import User, current_user, page_user, same_origin
 from job_queue import JobQueue, create_queue
+from storage import StoredPath
 
 STATIC = Path(__file__).parent / "static"
 
@@ -112,7 +114,7 @@ def _timestamp() -> str:
     return datetime.now().strftime("%Y%m%d-%H%M%S")
 
 
-def _job_dir(user: User, job_id: str) -> Path:
+def _job_dir(user: User, job_id: str) -> StoredPath:
     """The signed-in user's job. Someone else's job ID gives 404, the same as one that doesn't exist,
     so the response doesn't confirm that it exists."""
     try:
@@ -159,7 +161,7 @@ def tryon_page():
 
 # ── Measurements ──────────────────────────────────────────────────────────────
 
-async def _measure_inprocess(user_id: str, job_dir: Path) -> None:
+async def _measure_inprocess(user_id: str, job_dir: StoredPath) -> None:
     """In-process mode: runs after /process_upload has responded."""
     try:
         await jobs.run_measurement(user_id, job_dir)
@@ -199,12 +201,15 @@ async def process_upload(
 
     job_id = f"{_timestamp()}-{secrets.token_hex(3)}"
     job_dir = jobs.job_path(user.uid, job_id)
-    job_dir.mkdir(parents=True)
-    for view, p in photos.items():
-        (job_dir / f"{view}{_ext(p.mime_type)}").write_bytes(p.data)
-
     inputs = {"height_cm": height_cm, "weight_kg": weight_kg, "gender": gender, "age": age}
-    (job_dir / jobs.INPUTS_FILE).write_text(json.dumps(inputs), encoding="utf-8")   # workers read it from here
+
+    def save():   # in a thread: with the bucket, each write is a network call
+        job_dir.mkdir(parents=True)
+        for view, p in photos.items():
+            (job_dir / f"{view}{_ext(p.mime_type)}").write_bytes(p.data)
+        (job_dir / jobs.INPUTS_FILE).write_text(json.dumps(inputs), encoding="utf-8")   # workers read it from here
+
+    await asyncio.to_thread(save)
 
     # Recorded before the job can start, so a fast worker's "measuring" can't be overwritten by this
     await job_status.set_status(user.uid, job_id, "queued")
@@ -225,7 +230,7 @@ def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data)}\n\n"
 
 
-async def _job_event_stream(user: User, job_dir: Path):
+async def _job_event_stream(user: User, job_dir: StoredPath):
     """Yields `status` events as the job moves on (`queued`, then `measuring`), then exactly one `ready` or
     `failed`, with keep-alive pings while waiting. Named `failed` rather than `error` because EventSource
     uses `error` for connection problems.
@@ -259,11 +264,12 @@ async def _job_event_stream(user: User, job_dir: Path):
             # Read before the folder checks: the task writes its file before leaving this set,
             # so "not running" plus "no file" can only mean the task never finished
             running_here = key in _inprocess_running
-            if (job_dir / jobs.MEASUREMENT_FILE).exists():
+            finished = await asyncio.to_thread(jobs.result, job_dir)   # network calls with the bucket
+            if finished and finished[0] == "ready":
                 yield _sse("ready", {"redirect": f"/measurements?job={job_id}"})
                 return
-            if (job_dir / jobs.ERROR_FILE).exists():
-                yield _sse("failed", json.loads((job_dir / jobs.ERROR_FILE).read_text(encoding="utf-8")))
+            if finished:
+                yield _sse("failed", finished[1])
                 return
             if not _queue and not running_here:
                 # In-process only: the task died, usually a server restart (--reload does this on
@@ -407,12 +413,13 @@ async def save_try_on(
     """Keep the result the user picked, with what it was made from. The page sends it back with the same
     photos and rules it was generated from, since generating keeps nothing. Everything lands in the user's
     own folder, so sending a different image only affects their own saved try-ons."""
-    job_id = _job_dir(user, job).name if job else None
+    job_id = (await asyncio.to_thread(_job_dir, user, job)).name if job else None
     person_img, garments = await _tryon_inputs(
         person, {"top": top, "bottom": bottom, "headwear": headwear, "eyewear": eyewear})
     result_img = gemini_client.InputImage(
         await _read_image(result, "The result", config.MAX_RESULT_BYTES), result.content_type)
-    saved_id = _save_tryon(user, person_img, garments, _tryon_prompt(garments, prompt), result_img, job_id)
+    saved_id = await asyncio.to_thread(
+        _save_tryon, user, person_img, garments, _tryon_prompt(garments, prompt), result_img, job_id)
     return {"saved_id": saved_id}
 
 

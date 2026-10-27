@@ -23,7 +23,7 @@ async def main() -> None:
         job_dir = jobs.job_path(user_id, job_id)   # raises on a malformed message, so it's rejected
         # A redelivered job (the previous worker died before acknowledging) may already be done;
         # skip the model call rather than paying for it twice, but make sure its status record says so
-        if jobs.is_finished(job_dir):
+        if await asyncio.to_thread(jobs.is_finished, job_dir):   # a network call with the bucket
             log.info("job %s already finished, updating its status", job_id)
             await jobs.report_finished(user_id, job_dir)
         else:

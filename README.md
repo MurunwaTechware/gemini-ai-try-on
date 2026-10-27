@@ -64,7 +64,9 @@ Settings are read from `.env`. Only the first two are required, and only the fir
 | `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/` | Broker address when running without Docker. Use port `5673` for this project's Compose broker |
 | `WORKER_CONCURRENCY` | `4` | Jobs one worker runs at once. Keep workers × this within your Gemini quota |
 | `JOB_STATUS_ENABLED` | `true` | `false` stops writing job status records to Firestore. The upload page then finds results by checking every 5 seconds. See [How it works](#how-it-works) |
-| `RUNS_DIR` | `results/` next to `main.py` | Where uploads and results are saved |
+| `STORAGE_BACKEND` | `local` | Where uploads and results are kept: `local` (the `RUNS_DIR` folder) or `gcs` (the Cloud Storage bucket `RESULTS_BUCKET`). See [Storage](#storage) |
+| `RUNS_DIR` | `results/` next to `main.py` | The folder for uploads and results, with `STORAGE_BACKEND=local` |
+| `RESULTS_BUCKET` | (unset) | The bucket's name, with `STORAGE_BACKEND=gcs`. Terraform's `results_bucket` output |
 
 Docker Compose only:
 
@@ -87,7 +89,13 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAI
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/datastore.user"
 ```
 
-People who also run the products API (`superbalist/`) need a fifth:
+People who run it with the Cloud Storage bucket (`STORAGE_BACKEND=gcs`) also need access to the bucket's files:
+
+```
+gcloud storage buckets add-iam-policy-binding gs://YOUR_BUCKET --member="user:THEIR_EMAIL" --role="roles/storage.objectUser"
+```
+
+People who also run the products API (`superbalist/`) need one more:
 
 ```
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/cloudsql.client"
@@ -161,7 +169,7 @@ The server logs a warning at startup while sign-in is off. Never run a shared or
 ## How it works
 
 ```
-Browser ──upload──► web server ──saves photos──► results/<user>/<job>/
+Browser ──upload──► web server ──saves photos──► <user>/<job>/ in results/ or the bucket
                         │
                         └──job ID──► RabbitMQ [measure_jobs] ──► worker ──► Gemini
                                                                    │
@@ -177,7 +185,7 @@ Browser ◄──status, ready (SSE)── web server ◄──listens── Fir
   ```
   gcloud firestore fields ttls update expires_at --collection-group=measurement_jobs --enable-ttl --project YOUR_PROJECT_ID
   ```
-- Queue messages carry only the user ID and job ID. The worker reads the photos from the job folder, so the web server and workers must share `results/`.
+- Queue messages carry only the user ID and job ID. The worker reads the photos from the job folder, so the web server and workers must share the storage: the same `results/` folder (Docker Compose mounts it into both), or the bucket. See [Storage](#storage).
 - `job_queue.py` defines a small `JobQueue` interface: publish a job, consume jobs. RabbitMQ is the only implementation for now; Google Pub/Sub (`infra/terraform/pubsub.tf`) would be another class with the same methods.
 
 Each user has a folder holding their measurement profiles (one per upload) and the try-ons they saved:
@@ -204,6 +212,31 @@ Folders from before sign-in (directly under `results/`) and from before this lay
 
 `results/` holds real people's photos and measurements. It's in `.gitignore`; keep it out of the repo and out of anything you share.
 
+### Storage
+
+Uploads and results go in one of two places, with the same layout in both (`storage.py`):
+
+- **`STORAGE_BACKEND=local`** (default): the `results/` folder (`RUNS_DIR`). Fine on one machine, including Docker Compose, which shares the folder between the web server and the worker.
+- **`STORAGE_BACKEND=gcs`**: the Cloud Storage bucket `RESULTS_BUCKET`, private and in `africa-south1` (`infra/terraform/storage.tf`). Needed once the web server and workers run on different machines, e.g. Cloud Run. Set both in `.env`:
+  ```
+  STORAGE_BACKEND=gcs
+  RESULTS_BUCKET=YOUR_PROJECT_ID-tryon-results
+  ```
+
+In the bucket, `<user ID>/measurement_profiles/<job ID>/front.jpg` is one file whose name contains slashes; the console shows them as folders. Browse them in the console (Cloud Storage → Buckets), or list them:
+
+```
+gcloud storage ls gs://YOUR_BUCKET/<user ID>/measurement_profiles/
+```
+
+Photos still reach the pages through the server (`/me/files/...`), which checks the signed-in user first, so the bucket never needs to be public.
+
+Switching to the bucket doesn't move what's already in `results/`. To keep it, copy it across first (the folder layout is the same):
+
+```
+gcloud storage cp -r results/* gs://YOUR_BUCKET/
+```
+
 | File | What it does |
 |---|---|
 | `main.py` | Web server: pages, uploads, event stream, try-on |
@@ -214,6 +247,7 @@ Folders from before sign-in (directly under `results/`) and from before this lay
 | `worker.py` | Queue worker: takes measurement jobs and runs them |
 | `jobs.py` | Measurement job logic, shared by the web server and worker |
 | `job_status.py` | Job status records in Firestore: written as a job moves on, listened to by the event stream |
+| `storage.py` | Where uploads and results are kept: the local folder or the Cloud Storage bucket |
 | `job_queue.py` | Queue interface and its RabbitMQ implementation |
 | `gemini_client.py` | Gemini calls; no web code |
 | `prompts.py` | All prompt text |
@@ -300,6 +334,12 @@ The server or worker couldn't reach the job status records in Firestore. Measuri
 - **`DefaultCredentialsError`**: no Google Cloud login. See the quick start.
 
 To stop using the records altogether, set `JOB_STATUS_ENABLED=false`.
+
+### `403` or `does not have storage.objects…` with `STORAGE_BACKEND=gcs`
+Your Google Cloud login can't read or write the bucket's files. Grant **Storage Object User** on the bucket (see [Access](#access)), then restart. Check `RESULTS_BUCKET` is the exact bucket name (`terraform output results_bucket`), without `gs://`.
+
+### Profiles or saved try-ons disappeared after switching to the bucket
+They're still in `results/`: switching doesn't move files. Copy them across (see [Storage](#storage)), or switch back with `STORAGE_BACKEND=local`.
 
 ### "Measuring was interrupted because the server restarted"
 Without Docker in in-process mode, measurements run inside the web server, so a restart cancels them. `--reload` restarts it on every file save. Upload again. Queue mode avoids this, because jobs wait in RabbitMQ until a worker finishes them.
