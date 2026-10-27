@@ -41,11 +41,30 @@ if STORAGE_BACKEND == "gcs" and not RESULTS_BUCKET:
 
 # Where measurement jobs run:
 #   "inprocess": a background task inside the web server; nothing else to run
-#   "rabbitmq":  the web server publishes jobs to RabbitMQ and `python worker.py` runs them
+#   "rabbitmq":  the web server publishes jobs to RabbitMQ and `python worker.py` runs them (local Docker)
+#   "pubsub":    the same through Google Pub/Sub, for the cloud (infra/terraform/pubsub.tf)
 QUEUE_BACKEND = os.getenv("QUEUE_BACKEND", "inprocess")
-if QUEUE_BACKEND not in ("inprocess", "rabbitmq"):
-    raise RuntimeError(f"QUEUE_BACKEND must be 'inprocess' or 'rabbitmq', not {QUEUE_BACKEND!r}.")
+if QUEUE_BACKEND not in ("inprocess", "rabbitmq", "pubsub"):
+    raise RuntimeError(f"QUEUE_BACKEND must be 'inprocess', 'rabbitmq' or 'pubsub', not {QUEUE_BACKEND!r}.")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+
+
+def _pubsub_path(kind: str, name: str) -> str:
+    """A topic or subscription name, or its full path as Terraform prints it (projects/<project>/topics/<name>)."""
+    if name.startswith("projects/"):
+        return name
+    if not PROJECT_ID:
+        raise RuntimeError("QUEUE_BACKEND=pubsub needs GOOGLE_CLOUD_PROJECT, or full paths in PUBSUB_TOPIC and "
+                           "PUBSUB_SUBSCRIPTION.")
+    return f"projects/{PROJECT_ID}/{kind}/{name}"
+
+
+# Pub/Sub only. The defaults are the names Terraform creates (with its default name_prefix, "tryon")
+PUBSUB_TOPIC = os.getenv("PUBSUB_TOPIC", "tryon-measure-jobs")   # the web server publishes jobs here
+PUBSUB_SUBSCRIPTION = os.getenv("PUBSUB_SUBSCRIPTION", "tryon-measure-jobs-workers")   # workers pull from here
+if QUEUE_BACKEND == "pubsub":
+    PUBSUB_TOPIC = _pubsub_path("topics", PUBSUB_TOPIC)
+    PUBSUB_SUBSCRIPTION = _pubsub_path("subscriptions", PUBSUB_SUBSCRIPTION)
 # Jobs one worker runs at once. Each job is ~30 s of waiting on Gemini, so this can be above 1;
 # keep (workers x this) within the project's Gemini quota or the extra calls fail with 429s.
 WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "4"))

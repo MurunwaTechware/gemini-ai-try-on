@@ -60,7 +60,9 @@ Settings are read from `.env`. Only the first two are required, and only the fir
 | `GEMINI_API_KEY` | (unset) | Use an AI Studio API key instead of Vertex AI. Not needed with Google Cloud login |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image` | Try-on model |
 | `GEMINI_MEASURE_MODEL` | `gemini-2.5-pro` | Measurement model |
-| `QUEUE_BACKEND` | `inprocess` | `inprocess` or `rabbitmq`. Docker Compose always uses `rabbitmq` |
+| `QUEUE_BACKEND` | `inprocess` | `inprocess`, `rabbitmq` (local) or `pubsub` (Google Pub/Sub, for the cloud). Docker Compose ignores it: see `DOCKER_QUEUE_BACKEND` |
+| `PUBSUB_TOPIC` | `tryon-measure-jobs` | With `pubsub`: the topic the web server publishes jobs to. A name, or the full path Terraform prints |
+| `PUBSUB_SUBSCRIPTION` | `tryon-measure-jobs-workers` | With `pubsub`: the subscription workers pull jobs from |
 | `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/` | Broker address when running without Docker. Use port `5673` for this project's Compose broker |
 | `WORKER_CONCURRENCY` | `4` | Jobs one worker runs at once. Keep workers × this within your Gemini quota |
 | `JOB_STATUS_ENABLED` | `true` | `false` stops writing job status records to Firestore. The upload page then finds results by checking every 5 seconds. See [How it works](#how-it-works) |
@@ -75,6 +77,7 @@ Docker Compose only:
 | `WEB_PORT` | `8000` | Port the app is served on |
 | `RESULTS_DIR` | `./results` | Folder on your computer for uploads and results |
 | `GCLOUD_ADC` | Found automatically | Path to the Google login file, if it isn't in the default place |
+| `DOCKER_QUEUE_BACKEND` | `rabbitmq` | `pubsub` makes the web server and worker use the real Pub/Sub topics instead of the local RabbitMQ |
 
 ## Access
 
@@ -87,6 +90,13 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAI
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/serviceusage.serviceUsageConsumer"
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/firebaseauth.admin"
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/datastore.user"
+```
+
+People who run it with Pub/Sub (`QUEUE_BACKEND=pubsub`) need to publish jobs and pull them:
+
+```
+gcloud pubsub topics add-iam-policy-binding tryon-measure-jobs --project YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/pubsub.publisher"
+gcloud pubsub subscriptions add-iam-policy-binding tryon-measure-jobs-workers --project YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/pubsub.subscriber"
 ```
 
 People who run it with the Cloud Storage bucket (`STORAGE_BACKEND=gcs`) also need access to the bucket's files:
@@ -186,7 +196,8 @@ Browser ◄──status, ready (SSE)── web server ◄──listens── Fir
   gcloud firestore fields ttls update expires_at --collection-group=measurement_jobs --enable-ttl --project YOUR_PROJECT_ID
   ```
 - Queue messages carry only the user ID and job ID. The worker reads the photos from the job folder, so the web server and workers must share the storage: the same `results/` folder (Docker Compose mounts it into both), or the bucket. See [Storage](#storage).
-- `job_queue.py` defines a small `JobQueue` interface: publish a job, consume jobs. RabbitMQ is the only implementation for now; Google Pub/Sub (`infra/terraform/pubsub.tf`) would be another class with the same methods.
+- `job_queue.py` defines a small `JobQueue` interface: publish a job, consume jobs. `QUEUE_BACKEND` picks RabbitMQ (local Docker) or Google Pub/Sub (the cloud). Both give each job to exactly one worker.
+- With Pub/Sub, the web server publishes to the `tryon-measure-jobs` topic and workers pull from the `tryon-measure-jobs-workers` subscription (`infra/terraform/pubsub.tf`). A job is acknowledged when it finishes. If the worker's handler fails, the job is handed back and retried with a growing delay; after 5 attempts it moves to the dead-letter queue, and an alert opens. If a worker dies mid-job, another worker gets it.
 
 Each user has a folder holding their measurement profiles (one per upload) and the try-ons they saved:
 
@@ -337,6 +348,14 @@ To stop using the records altogether, set `JOB_STATUS_ENABLED=false`.
 
 ### `403` or `does not have storage.objects…` with `STORAGE_BACKEND=gcs`
 Your Google Cloud login can't read or write the bucket's files. Grant **Storage Object User** on the bucket (see [Access](#access)), then restart. Check `RESULTS_BUCKET` is the exact bucket name (`terraform output results_bucket`), without `gs://`.
+
+### `PermissionDenied` or `NotFound` from Pub/Sub
+With `QUEUE_BACKEND=pubsub`, the upload fails with "The measuring service is unavailable", or the worker stops with this error.
+- **`NotFound`**: the topic or subscription doesn't exist, or `PUBSUB_TOPIC` / `PUBSUB_SUBSCRIPTION` name the wrong ones. Check with `terraform output`. They're created by `infra/terraform`.
+- **`PermissionDenied` / `403`**: your Google Cloud login can't publish or pull. Grant the Pub/Sub roles in [Access](#access).
+
+### Jobs wait forever with `QUEUE_BACKEND=pubsub`
+The page says "Waiting for a free worker…" and nothing happens: no worker is pulling from the subscription. Start one (`python worker.py`, or `DOCKER_QUEUE_BACKEND=pubsub` with Docker Compose). Both the web server and the worker must use Pub/Sub: a RabbitMQ worker never sees Pub/Sub jobs.
 
 ### Profiles or saved try-ons disappeared after switching to the bucket
 They're still in `results/`: switching doesn't move files. Copy them across (see [Storage](#storage)), or switch back with `STORAGE_BACKEND=local`.

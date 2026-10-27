@@ -1,7 +1,7 @@
 """Measurement worker: takes jobs from the queue and runs them. Each job's status record in Firestore
 (job_status.py) is what tells the waiting page that it has started and finished.
 
-Run alongside the web server when QUEUE_BACKEND=rabbitmq:
+Run alongside the web server when QUEUE_BACKEND is rabbitmq or pubsub:
     python worker.py
 Start more copies (here or on other machines) to process more jobs in parallel.
 """
@@ -34,7 +34,7 @@ async def main() -> None:
     await queue.consume_jobs(handle, concurrency=config.WORKER_CONCURRENCY)
     log.info("waiting for jobs (up to %d at a time); Ctrl+C to stop", config.WORKER_CONCURRENCY)
     try:
-        await asyncio.Future()   # run until stopped
+        await queue.wait_closed()   # until stopped, or the queue fails for good (then the error shows here)
     finally:
         await queue.close()
 

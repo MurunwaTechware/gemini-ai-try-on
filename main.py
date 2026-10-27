@@ -66,7 +66,7 @@ def _notify_done(user_id: str, job_id: str) -> None:
 async def lifespan(app: FastAPI):
     global _queue
     auth.init()
-    if config.QUEUE_BACKEND == "rabbitmq":
+    if config.QUEUE_BACKEND != "inprocess":
         _queue = create_queue()
         await _queue.connect()
     yield
