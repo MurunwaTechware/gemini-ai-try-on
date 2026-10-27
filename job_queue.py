@@ -1,15 +1,12 @@
-"""Job queue: how measurement jobs reach workers, and how "job done" gets back to the web servers.
+"""Job queue: how measurement jobs reach workers. Each job is handled by exactly one worker.
 
-Two message flows:
-  jobs    web server -> one worker    each job is handled by exactly one worker
-  events  worker -> every web server  whichever server holds the browser's SSE stream wakes it
+How the waiting page hears back isn't the queue's job: workers update the job's status record in
+Firestore (job_status.py), and the web server holding the page's stream listens to that record.
 
 JobQueue is the interface main.py and worker.py use. RabbitMQQueue is the only implementation
-for now; a cloud provider means one more class with the same methods:
-  Google Pub/Sub  jobs: a topic with one shared worker subscription
-                  events: a topic with one subscription per web instance
-  AWS             jobs: an SQS queue
-                  events: an SNS topic fanning out to one SQS queue per web instance
+for now (local Docker); a cloud provider means one more class with the same methods:
+  Google Pub/Sub  a topic with one shared worker subscription (infra/terraform/pubsub.tf)
+  AWS             an SQS queue
 """
 import asyncio
 import json
@@ -26,7 +23,6 @@ log = logging.getLogger(__name__)
 
 # Messages carry {"user_id", "job_id"}: the job's folder is RUNS_DIR/<user ID>/measurement_profiles/<job ID>
 JobHandler = Callable[[str, str], Awaitable[None]]   # called with (user ID, job ID); returns once the job is done
-DoneHandler = Callable[[str, str], None]             # called with (user ID, job ID) when any worker finishes it
 
 
 class JobQueue(Protocol):
@@ -34,13 +30,10 @@ class JobQueue(Protocol):
     async def close(self) -> None: ...
     async def publish_job(self, user_id: str, job_id: str) -> None: ...
     async def consume_jobs(self, handler: JobHandler, concurrency: int) -> None: ...
-    async def publish_done(self, user_id: str, job_id: str) -> None: ...
-    async def subscribe_done(self, handler: DoneHandler) -> None: ...
 
 
 class RabbitMQQueue:
     JOBS_QUEUE = "measure_jobs"      # durable: queued jobs survive a RabbitMQ restart
-    EVENTS_EXCHANGE = "job_events"   # fanout: every bound queue gets a copy of each message
     # Startup waits roughly ATTEMPTS x (RETRY_S + time per failed attempt) for the broker. A refused
     # connection itself takes ~4 s on Windows (it tries ::1, then 127.0.0.1), so ~70 s in total there.
     CONNECT_ATTEMPTS = 10
@@ -67,7 +60,6 @@ class RabbitMQQueue:
                 await asyncio.sleep(self.CONNECT_RETRY_S)
         self._channel = await self._connection.channel()
         self._jobs = await self._channel.declare_queue(self.JOBS_QUEUE, durable=True)
-        self._events = await self._channel.declare_exchange(self.EVENTS_EXCHANGE, aio_pika.ExchangeType.FANOUT)
 
     async def close(self) -> None:
         if self._connection:
@@ -93,23 +85,6 @@ class RabbitMQQueue:
                 await handler(body["user_id"], body["job_id"])
 
         await self._jobs.consume(on_message)
-
-    async def publish_done(self, user_id: str, job_id: str) -> None:
-        body = json.dumps({"user_id": user_id, "job_id": job_id}).encode()
-        await self._events.publish(aio_pika.Message(body), routing_key="")
-
-    async def subscribe_done(self, handler: DoneHandler) -> None:
-        # A private, server-named queue for this web instance, deleted when it disconnects.
-        # Events sent while no web server is listening are simply missed; that's fine because
-        # the SSE stream checks the job folder on disk before it starts waiting.
-        queue = await self._channel.declare_queue(exclusive=True)
-        await queue.bind(self._events)
-
-        async def on_message(message: AbstractIncomingMessage) -> None:
-            body = json.loads(message.body)
-            handler(body["user_id"], body["job_id"])
-
-        await queue.consume(on_message, no_ack=True)
 
 
 def create_queue() -> JobQueue:

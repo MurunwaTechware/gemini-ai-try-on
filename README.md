@@ -63,6 +63,7 @@ Settings are read from `.env`. Only the first two are required, and only the fir
 | `QUEUE_BACKEND` | `inprocess` | `inprocess` or `rabbitmq`. Docker Compose always uses `rabbitmq` |
 | `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/` | Broker address when running without Docker. Use port `5673` for this project's Compose broker |
 | `WORKER_CONCURRENCY` | `4` | Jobs one worker runs at once. Keep workers × this within your Gemini quota |
+| `JOB_STATUS_ENABLED` | `true` | `false` stops writing job status records to Firestore. The upload page then finds results by checking every 5 seconds. See [How it works](#how-it-works) |
 | `RUNS_DIR` | `results/` next to `main.py` | Where uploads and results are saved |
 
 Docker Compose only:
@@ -97,7 +98,7 @@ gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAI
 | `roles/aiplatform.user` | **Agent Platform User** (older pages: Vertex AI User) | Lets them call Gemini |
 | `roles/serviceusage.serviceUsageConsumer` | **Service Usage Consumer** | Lets their login bill usage to your project |
 | `roles/firebaseauth.admin` | **Firebase Authentication Admin** | Lets the server they run create and check sign-in sessions. Only needed by people running the server, not by people signing in to it |
-| `roles/datastore.user` | **Cloud Datastore User** | Lets the server they run read and write user records in Firestore. Also only for people running the server |
+| `roles/datastore.user` | **Cloud Datastore User** | Lets the server and workers they run read and write user records and job status records in Firestore. Needed even with sign-in off. Also only for people running the server |
 | `roles/cloudsql.client` | **Cloud SQL Client** | Lets the Cloud SQL Auth Proxy connect to the products database. Reading data still needs the database password |
 
 Don't use **AI Platform Admin** (`roles/ml.admin`). Despite the name, it's for Google's retired AI Platform and doesn't include Gemini access. Avoid Owner or Editor too: those allow changing or deleting anything in the project. Usage by everyone counts against the project's billing account, so a budget alert (Billing → Budgets & alerts) is worth setting.
@@ -113,7 +114,7 @@ One-time setup, by a project Owner:
 3. **Authentication → Sign-in method**: enable **Google** and **Email/Password** (leave "Email link" off).
 4. **Project settings → Your apps → Add app → Web**. Copy `apiKey` from the config it shows into `.env` as `FIREBASE_API_KEY`.
 5. Under **Authentication → Settings → Authorized domains**, check that `localhost` is listed (newer projects may not include it) and add it if not. Add `127.0.0.1` too if you open the app at `http://127.0.0.1:8000`; otherwise Google sign-in fails there with `auth/unauthorized-domain`. Add any other address the app runs on too, e.g. the Cloud Run URL. Enter the hostname only, without `http://` or a port.
-6. Create the Firestore database for user records. Pick the location carefully: it can't be changed later. `africa-south1` keeps South African users' data in the country.
+6. Create the Firestore database for user records and job status records. Pick the location carefully: it can't be changed later. `africa-south1` keeps South African users' data in the country.
    ```
    gcloud services enable firestore.googleapis.com --project YOUR_PROJECT_ID
    gcloud firestore databases create --project YOUR_PROJECT_ID --location africa-south1
@@ -151,7 +152,8 @@ Requests that change something (`/session`, `/logout`, `/process_upload`, `/try-
 For local development and demos, set `AUTH_ENABLED=false` in `.env` and restart. Then:
 
 - There's no sign-in page: `/login` goes straight into the app, and every request is the **demo user** (`demo-user`, the same ID as the frontend's mock user). Their files go in `results/demo-user/`.
-- Firebase and Firestore are never called, so none of the setup below is needed and `FIREBASE_API_KEY` can stay empty. Gemini still needs the Google Cloud login from the quick start.
+- Firebase sign-in isn't used and no user records are saved, so `FIREBASE_API_KEY` can stay empty. Gemini still needs the Google Cloud login from the quick start.
+- Job status records still go to Firestore (see [How it works](#how-it-works)), so the database from step 6 below is still used. Without it the app still works; the upload page just finds results up to 5 seconds later.
 - The demo user's details on `/account` live in memory: edits last until the server restarts.
 
 The server logs a warning at startup while sign-in is off. Never run a shared or public server this way: anyone who can reach it acts as the same user.
@@ -163,12 +165,20 @@ Browser ──upload──► web server ──saves photos──► results/<us
                         │
                         └──job ID──► RabbitMQ [measure_jobs] ──► worker ──► Gemini
                                                                    │
-Browser ◄──"ready" (SSE)── web server ◄──"done"── [job_events] ◄────┘
+                                     writes measurement.json, then │
+Browser ◄──status, ready (SSE)── web server ◄──listens── Firestore measurement_jobs/<job> ◄──┘
 ```
 
-- The upload page waits on one open connection (`/job_events/<job>`, Server-Sent Events) and the server pushes `ready` or `failed` when the measurement finishes.
+- The upload page waits on one open connection (`/job_events/<job>`, Server-Sent Events). The server pushes `status` as the job moves on (`queued`, then `measuring`), then `ready` or `failed` when it finishes.
+- Each job has a status record in Firestore, `measurement_jobs/<job ID>`: `status`, `user_id`, `error` and timestamps. The web server and worker update it (`job_status.py`), and the web server holding the page's connection listens to it, so it hears straight away whichever machine ran the job. Nothing polls Firestore.
+- The record only says when to look; the result is the file in the job folder, written first. The server also checks the folder every 5 seconds, so if Firestore can't be reached, measuring still works, just a few seconds slower. The log says `couldn't write job status` when that happens.
+- The records are in one collection rather than per user, so the Firestore console (Firestore → Data → `measurement_jobs`) shows everyone's jobs while debugging.
+- Records expire a day after their last change. Turn on the expiry once per project (Terraform does this too, in `infra/terraform/firestore.tf`):
+  ```
+  gcloud firestore fields ttls update expires_at --collection-group=measurement_jobs --enable-ttl --project YOUR_PROJECT_ID
+  ```
 - Queue messages carry only the user ID and job ID. The worker reads the photos from the job folder, so the web server and workers must share `results/`.
-- `job_queue.py` defines a small `JobQueue` interface. RabbitMQ is the only implementation for now; Google Pub/Sub or Cloud Tasks would be another class with the same methods.
+- `job_queue.py` defines a small `JobQueue` interface: publish a job, consume jobs. RabbitMQ is the only implementation for now; Google Pub/Sub (`infra/terraform/pubsub.tf`) would be another class with the same methods.
 
 Each user has a folder holding their measurement profiles (one per upload) and the try-ons they saved:
 
@@ -203,6 +213,7 @@ Folders from before sign-in (directly under `results/`) and from before this lay
 | `models/Entities/Users.py` | The `User` record: what the app keeps about a user beyond Firebase's sign-in data |
 | `worker.py` | Queue worker: takes measurement jobs and runs them |
 | `jobs.py` | Measurement job logic, shared by the web server and worker |
+| `job_status.py` | Job status records in Firestore: written as a job moves on, listened to by the event stream |
 | `job_queue.py` | Queue interface and its RabbitMQ implementation |
 | `gemini_client.py` | Gemini calls; no web code |
 | `prompts.py` | All prompt text |
@@ -256,7 +267,7 @@ This project's broker dashboard is **http://localhost:15673**. Port 15672 belong
 With one job at a time the graphs barely move: **Ready** stays at 0 because a worker is already waiting, and **Unacked** shows 1 while Gemini is working (about 30 seconds). To watch jobs queue up, run `docker compose stop worker`, upload a few times, then `docker compose start worker`.
 
 ### `measure_jobs` or `job_events` appeared in another project's RabbitMQ
-The app creates these on whatever broker `RABBITMQ_URL` points to. Port 5672 is the usual default for *other* RabbitMQ installs. Point `.env` at port **5673**, then remove the leftovers from the other broker:
+The app creates `measure_jobs` on whatever broker `RABBITMQ_URL` points to (older versions also created the `job_events` exchange). Port 5672 is the usual default for *other* RabbitMQ installs. Point `.env` at port **5673**, then remove the leftovers from the other broker:
 
 ```
 docker exec <other-rabbitmq-container> rabbitmqctl delete_queue measure_jobs
@@ -281,6 +292,14 @@ The session cookie isn't being kept. On `http://localhost` in Safari, set `COOKI
 
 ### Port 8000 is in use, or the page says `{"detail":"Not Found"}`
 Another app is already using port 8000. A different app's server answering is what produces that "Not Found". Use another port: set `WEB_PORT=8001` in `.env` (Docker), or add `--port 8001` to the `uvicorn` command (no Docker), then open http://localhost:8001.
+
+### `couldn't write job status` or `couldn't listen to job status` in the log
+The server or worker couldn't reach the job status records in Firestore. Measuring still works: the upload page finds the result by checking the job folder, up to 5 seconds late. The server tries Firestore again a minute later. The message says why:
+- **`403` / `PermissionDenied`**: you're missing **Cloud Datastore User** (see [Access](#access)).
+- **`database (default) does not exist`** or **`SERVICE_DISABLED`**: the Firestore database hasn't been created. See step 6 of [Sign-in](#sign-in).
+- **`DefaultCredentialsError`**: no Google Cloud login. See the quick start.
+
+To stop using the records altogether, set `JOB_STATUS_ENABLED=false`.
 
 ### "Measuring was interrupted because the server restarted"
 Without Docker in in-process mode, measurements run inside the web server, so a restart cancels them. `--reload` restarts it on every file save. Upload again. Queue mode avoids this, because jobs wait in RabbitMQ until a worker finishes them.

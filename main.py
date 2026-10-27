@@ -26,6 +26,7 @@ import account
 import auth
 import config
 import gemini_client
+import job_status
 import jobs
 import prompts
 from auth import User, current_user, page_user, same_origin
@@ -35,11 +36,16 @@ STATIC = Path(__file__).parent / "static"
 
 MEASURE_TIMEOUT_S = 300   # the event stream gives up after this; a measurement normally takes ~30 s
 PING_EVERY_S = 15         # keep-alive comment so browsers and proxies don't drop an idle stream
+# The event stream is woken by the job's status record (job_status.py). It also checks the job folder
+# this often, so it still finds the result if a change is missed, e.g. while Firestore is unreachable.
+FOLDER_CHECK_S = 5
+# A record says the job finished but its result file isn't there: wait this long for the file
+# (shared storage can lag a moment) before reporting a failure
+RESULT_GRACE_S = 3
 
-# Wakes /job_events streams the moment a job finishes. In-process mode calls _notify_done itself;
-# queue mode calls it for each "done" event from the workers, whichever machine ran the job.
-# Keyed by "<user ID>/<job ID>", as are the other job sets here.
-_waiters: dict[str, asyncio.Event] = {}
+# In-process mode only: wakes /job_events streams the moment a background job finishes, without
+# waiting for Firestore. Keyed by "<user ID>/<job ID>", as are the other job sets here.
+_waiters: dict[str, set[asyncio.Event]] = {}
 # In-process mode only: jobs whose background task is running in this process
 _inprocess_running: set[str] = set()
 _queue: JobQueue | None = None
@@ -50,8 +56,7 @@ def _key(user_id: str, job_id: str) -> str:
 
 
 def _notify_done(user_id: str, job_id: str) -> None:
-    waiter = _waiters.pop(_key(user_id, job_id), None)
-    if waiter:
+    for waiter in _waiters.get(_key(user_id, job_id), ()):
         waiter.set()
 
 
@@ -62,7 +67,6 @@ async def lifespan(app: FastAPI):
     if config.QUEUE_BACKEND == "rabbitmq":
         _queue = create_queue()
         await _queue.connect()
-        await _queue.subscribe_done(_notify_done)
     yield
     if _queue:
         await _queue.close()
@@ -158,7 +162,7 @@ def tryon_page():
 async def _measure_inprocess(user_id: str, job_dir: Path) -> None:
     """In-process mode: runs after /process_upload has responded."""
     try:
-        await jobs.run_measurement(job_dir)
+        await jobs.run_measurement(user_id, job_dir)
     finally:
         # The result file is written before this, so a stream that wakes up always finds it
         _inprocess_running.discard(_key(user_id, job_dir.name))
@@ -202,11 +206,15 @@ async def process_upload(
     inputs = {"height_cm": height_cm, "weight_kg": weight_kg, "gender": gender, "age": age}
     (job_dir / jobs.INPUTS_FILE).write_text(json.dumps(inputs), encoding="utf-8")   # workers read it from here
 
+    # Recorded before the job can start, so a fast worker's "measuring" can't be overwritten by this
+    await job_status.set_status(user.uid, job_id, "queued")
     if _queue:
         try:
             await _queue.publish_job(user.uid, job_id)
         except Exception:
-            raise HTTPException(503, "The measuring service is unavailable right now. Please try again shortly.")
+            message = "The measuring service is unavailable right now. Please try again shortly."
+            await job_status.set_status(user.uid, job_id, "failed", message)
+            raise HTTPException(503, message)
     else:
         _inprocess_running.add(_key(user.uid, job_id))   # registered before responding, so the stream always finds it
         background.add_task(_measure_inprocess, user.uid, job_dir)
@@ -218,42 +226,81 @@ def _sse(event: str, data: dict) -> str:
 
 
 async def _job_event_stream(user: User, job_dir: Path):
-    """Yields exactly one `ready` or `failed` event, with keep-alive pings while waiting.
-    Named `failed` rather than `error` because EventSource uses `error` for connection problems.
-    The user was checked when the stream opened; it isn't rechecked while it stays open."""
+    """Yields `status` events as the job moves on (`queued`, then `measuring`), then exactly one `ready` or
+    `failed`, with keep-alive pings while waiting. Named `failed` rather than `error` because EventSource
+    uses `error` for connection problems.
+
+    What wakes it: the job's status record in Firestore, which a worker on any machine updates (and, in
+    in-process mode, the background task finishing). The result files in the job folder are what count:
+    the record only says when to look, and the folder is also checked every FOLDER_CHECK_S seconds in case
+    a change is missed. The user was checked when the stream opened; it isn't rechecked while it stays open."""
     job_id = job_dir.name
     key = _key(user.uid, job_id)
-    # Registered before the disk checks, so a job finishing between the check and the wait
-    # still wakes this stream; a job that finished earlier is caught by the disk check
-    waiter = _waiters.setdefault(key, asyncio.Event())
-    deadline = asyncio.get_running_loop().time() + MEASURE_TIMEOUT_S
-    while True:
-        # Read before the disk checks: the task writes its file before leaving this set,
-        # so "not running" plus "no file" can only mean the task never finished
-        running_here = key in _inprocess_running
-        if (job_dir / jobs.MEASUREMENT_FILE).exists():
-            _waiters.pop(key, None)
-            yield _sse("ready", {"redirect": f"/measurements?job={job_id}"})
-            return
-        if (job_dir / jobs.ERROR_FILE).exists():
-            _waiters.pop(key, None)
-            yield _sse("failed", json.loads((job_dir / jobs.ERROR_FILE).read_text(encoding="utf-8")))
-            return
-        if not _queue and not running_here:
-            # In-process only: the task died, usually a server restart (--reload does this on
-            # every file save). With a queue the job is still queued, and a worker picks it up
-            yield _sse("failed", {"error": "Measuring was interrupted because the server restarted. Please upload again."})
-            return
-        if waiter.is_set():   # woken, but no result file: would otherwise spin until the deadline
-            yield _sse("failed", {"error": "Measuring finished without a result. Please try again."})
-            return
-        if asyncio.get_running_loop().time() > deadline:
-            yield _sse("failed", {"error": "This is taking longer than expected. Please try again."})
-            return
-        try:
-            await asyncio.wait_for(waiter.wait(), timeout=PING_EVERY_S)
-        except TimeoutError:
-            yield ": ping\n\n"   # lines starting with ":" are comments; EventSource ignores them
+    loop = asyncio.get_running_loop()
+    wake = asyncio.Event()
+    record: dict = {}   # the newest status from the job's record: {"status": ..., "error": ...}
+
+    def on_status(status: str, error: str | None) -> None:   # on the event loop, via call_soon_threadsafe
+        record.update(status=status, error=error)
+        wake.set()
+
+    # Start listening before the folder checks, so a job finishing between the check and the wait still
+    # wakes this stream; a job that finished earlier is caught by the folder check
+    _waiters.setdefault(key, set()).add(wake)
+    stop_watching = await asyncio.to_thread(
+        job_status.watch, user.uid, job_id, lambda status, error: loop.call_soon_threadsafe(on_status, status, error))
+    deadline = loop.time() + MEASURE_TIMEOUT_S
+    last_sent = loop.time()
+    sent_status = None      # the last `status` event sent, so each stage is sent once
+    finished_at = None      # when the record first said ready/failed with no result file yet
+    try:
+        while True:
+            wake.clear()   # before the checks: a change during them makes the wait below return at once
+            # Read before the folder checks: the task writes its file before leaving this set,
+            # so "not running" plus "no file" can only mean the task never finished
+            running_here = key in _inprocess_running
+            if (job_dir / jobs.MEASUREMENT_FILE).exists():
+                yield _sse("ready", {"redirect": f"/measurements?job={job_id}"})
+                return
+            if (job_dir / jobs.ERROR_FILE).exists():
+                yield _sse("failed", json.loads((job_dir / jobs.ERROR_FILE).read_text(encoding="utf-8")))
+                return
+            if not _queue and not running_here:
+                # In-process only: the task died, usually a server restart (--reload does this on
+                # every file save). With a queue the job is still queued, and a worker picks it up
+                yield _sse("failed", {"error": "Measuring was interrupted because the server restarted. Please upload again."})
+                return
+
+            status = record.get("status")
+            if status in ("ready", "failed"):
+                # The file is written before the record, so it should be there; give shared storage a moment
+                finished_at = finished_at or loop.time()
+                if loop.time() - finished_at >= RESULT_GRACE_S:
+                    error = record.get("error") if status == "failed" else None
+                    yield _sse("failed", {"error": error or "Measuring finished without a result. Please try again."})
+                    return
+            elif status and status != sent_status:
+                sent_status = status
+                last_sent = loop.time()
+                yield _sse("status", {"status": status})
+
+            if loop.time() > deadline:
+                yield _sse("failed", {"error": "This is taking longer than expected. Please try again."})
+                return
+            if loop.time() - last_sent >= PING_EVERY_S:
+                last_sent = loop.time()
+                yield ": ping\n\n"   # lines starting with ":" are comments; EventSource ignores them
+            try:
+                await asyncio.wait_for(wake.wait(), timeout=1 if finished_at else FOLDER_CHECK_S)
+            except TimeoutError:
+                pass
+    finally:
+        stop_watching()
+        waiters = _waiters.get(key)
+        if waiters is not None:
+            waiters.discard(wake)
+            if not waiters:
+                del _waiters[key]
 
 
 @app.get("/job_events/{job_id}")

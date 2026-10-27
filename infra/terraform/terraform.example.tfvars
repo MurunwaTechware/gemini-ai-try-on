@@ -8,3 +8,4 @@ region     = "africa-south1" # see the region notes in variables.tf
 # results_retention_days = 30
 # max_delivery_attempts  = 5
 # alert_email            = "you@example.com"
+# products_sql_instance  = "post-1"   # existing Cloud SQL instance, only looked up

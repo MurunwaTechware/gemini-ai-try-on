@@ -36,3 +36,9 @@ variable "alert_email" {
   type        = string
   default     = ""
 }
+
+variable "products_sql_instance" {
+  description = "Name of the existing Cloud SQL instance holding the products database. Only looked up, never managed."
+  type        = string
+  default     = "post-1"
+}

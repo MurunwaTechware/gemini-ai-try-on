@@ -285,7 +285,8 @@
                 const jobId = data.job_id;
                 document.getElementById('spinner-text').textContent = 'Measuring from your photos… this can take a minute.';
 
-                // One open connection; the server pushes a single `ready` or `failed` event when done
+                // One open connection; the server pushes `status` as the job moves on, then a single
+                // `ready` or `failed` event when done
                 const events = new EventSource(`/job_events/${encodeURIComponent(jobId)}`);
                 // Backstop in case the server can't be reached at all (EventSource would keep retrying).
                 // Longer than the server's own 5-minute limit, so normally the server reports first.
@@ -303,6 +304,13 @@
                     window.location.href = JSON.parse(e.data).redirect;
                 });
                 events.addEventListener('failed', (e) => fail(JSON.parse(e.data).error));
+                // queued: waiting for a free worker; measuring: a worker has started on it
+                events.addEventListener('status', (e) => {
+                    const { status } = JSON.parse(e.data);
+                    document.getElementById('spinner-text').textContent = status === 'queued'
+                        ? 'Waiting for a free worker…'
+                        : 'Measuring from your photos… this can take a minute.';
+                });
                 // Fires on connection problems. A dropped connection retries by itself (CONNECTING);
                 // CLOSED means the browser has given up, e.g. the server answered with an error page.
                 events.onerror = () => {

@@ -1,4 +1,5 @@
-"""Measurement worker: takes jobs from the queue, runs them, and announces when each is done.
+"""Measurement worker: takes jobs from the queue and runs them. Each job's status record in Firestore
+(job_status.py) is what tells the waiting page that it has started and finished.
 
 Run alongside the web server when QUEUE_BACKEND=rabbitmq:
     python worker.py
@@ -21,16 +22,14 @@ async def main() -> None:
     async def handle(user_id: str, job_id: str) -> None:
         job_dir = jobs.job_path(user_id, job_id)   # raises on a malformed message, so it's rejected
         # A redelivered job (the previous worker died before acknowledging) may already be done;
-        # skip the model call rather than paying for it twice
+        # skip the model call rather than paying for it twice, but make sure its status record says so
         if jobs.is_finished(job_dir):
-            log.info("job %s already finished, re-announcing", job_id)
+            log.info("job %s already finished, updating its status", job_id)
+            await jobs.report_finished(user_id, job_dir)
         else:
             log.info("job %s started", job_id)
-            await jobs.run_measurement(job_dir)
+            await jobs.run_measurement(user_id, job_dir)   # updates the status record as it goes
             log.info("job %s finished", job_id)
-        # Announce before the message is acknowledged, so a crash here means a redelivery
-        # (handled by the check above) rather than a browser that never hears back
-        await queue.publish_done(user_id, job_id)
 
     await queue.consume_jobs(handle, concurrency=config.WORKER_CONCURRENCY)
     log.info("waiting for jobs (up to %d at a time); Ctrl+C to stop", config.WORKER_CONCURRENCY)

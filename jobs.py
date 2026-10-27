@@ -14,6 +14,7 @@ from pathlib import Path
 
 import config
 import gemini_client
+import job_status
 import prompts
 
 INPUTS_FILE = "inputs.json"
@@ -53,15 +54,19 @@ def _load_photos(job_dir: Path) -> dict[str, gemini_client.InputImage]:
     return photos
 
 
-async def run_measurement(job_dir: Path) -> None:
+async def run_measurement(user_id: str, job_dir: Path) -> None:
     """Measure one job and write measurement.json, or error.json on any failure. Never raises
-    for model problems, so a queued message is handled exactly once from the queue's view."""
+    for model problems, so a queued message is handled exactly once from the queue's view.
+    The job's status record (job_status.py) follows along; the file is always written first,
+    so a page woken by the record finds the result."""
+    await job_status.set_status(user_id, job_dir.name, "measuring")
     try:
         inputs = json.loads((job_dir / INPUTS_FILE).read_text(encoding="utf-8"))
         report = await gemini_client.estimate_measurements(_load_photos(job_dir), **inputs)
     except Exception as e:   # anything uncaught here would leave the page waiting until it times out
         message = str(e) if isinstance(e, gemini_client.MeasurementError) else f"Measuring failed: {e}"
         (job_dir / ERROR_FILE).write_text(json.dumps({"error": message}), encoding="utf-8")
+        await job_status.set_status(user_id, job_dir.name, "failed", message)
         return
     record = {
         "job_id": job_dir.name,
@@ -73,3 +78,14 @@ async def run_measurement(job_dir: Path) -> None:
         "warnings": report.warnings,
     }
     (job_dir / MEASUREMENT_FILE).write_text(json.dumps(record, indent=2), encoding="utf-8")
+    await job_status.set_status(user_id, job_dir.name, "ready")
+
+
+async def report_finished(user_id: str, job_dir: Path) -> None:
+    """Set a finished job's status record from its result file. For a job that was already done when it
+    came round again (a redelivered queue message), so its record ends up right either way."""
+    if (job_dir / MEASUREMENT_FILE).exists():
+        await job_status.set_status(user_id, job_dir.name, "ready")
+    elif (job_dir / ERROR_FILE).exists():
+        error = json.loads((job_dir / ERROR_FILE).read_text(encoding="utf-8")).get("error")
+        await job_status.set_status(user_id, job_dir.name, "failed", error)

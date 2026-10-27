@@ -1,6 +1,6 @@
-# Replaces RabbitMQ. Same two flows as job_queue.py:
-#   jobs:   web server -> one worker   (measure_jobs queue)  -> topic + one shared subscription
-#   events: worker -> every web server (job_events fanout)   -> topic; subscriptions come later
+# Replaces RabbitMQ for the job queue (job_queue.py): web server -> one worker, as a topic with one
+# shared subscription. How the waiting page hears back isn't here: workers update the job's status
+# record in Firestore (job_status.py, firestore.tf), and the web server listens to that.
 
 # ── Jobs ──────────────────────────────────────────────────────────────────────
 
@@ -77,16 +77,4 @@ resource "google_pubsub_subscription_iam_member" "dead_letter_subscriber" {
   subscription = google_pubsub_subscription.measure_jobs_workers.name
   role         = "roles/pubsub.subscriber"
   member       = local.pubsub_service_agent
-}
-
-# ── Job events ────────────────────────────────────────────────────────────────
-
-# "Job done" announcements from workers. Not subscribed to yet: on Cloud Run, web instances come
-# and go, so one subscription per instance is awkward. Decide in the Cloud Run step between
-# per-instance subscriptions created by the app, or the event stream checking the bucket instead.
-resource "google_pubsub_topic" "job_events" {
-  name                       = "${var.name_prefix}-job-events"
-  project                    = var.project_id
-  message_retention_duration = "600s" # only useful while someone is waiting; old events have no value
-  depends_on                 = [google_project_service.apis]
 }

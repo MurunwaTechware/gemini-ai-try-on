@@ -42,7 +42,7 @@ RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "4"))
 
 # Sign-in on or off. Off (AUTH_ENABLED=false in .env) is for local development and demos: there's no
-# Google sign-in, Firebase and Firestore are never called, and every request is the demo user, whose
+# Google sign-in, user records stay in memory, and every request is the demo user, whose
 # files go in results/<DEMO_USER_ID>/. On unless .env says otherwise, so a missing setting can't
 # quietly switch sign-in off on a real server.
 AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() != "false"
@@ -53,6 +53,11 @@ DEMO_USER_ID = "demo-user"   # the same ID as the frontend's mock user
 FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")
 FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", PROJECT_ID)
 FIREBASE_AUTH_DOMAIN = os.getenv("FIREBASE_AUTH_DOMAIN", f"{FIREBASE_PROJECT_ID}.firebaseapp.com")
+
+# Job status records in Firestore (job_status.py): how the upload page hears that its measurement has
+# moved on or finished, from whichever worker ran it. Used with sign-in on or off. If Firestore can't be
+# reached, the page still finds the result by checking the job folder, a few seconds later.
+JOB_STATUS_ENABLED = os.getenv("JOB_STATUS_ENABLED", "true").lower() != "false" and bool(FIREBASE_PROJECT_ID)
 # How long a sign-in lasts. Firebase allows 5 minutes to 14 days.
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "5"))
 # Session cookie is HTTPS-only. Chrome, Edge and Firefox treat http://localhost as secure, so this can

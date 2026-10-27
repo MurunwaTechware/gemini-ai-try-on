@@ -15,12 +15,12 @@ output "measure_jobs_subscription" {
   value       = google_pubsub_subscription.measure_jobs_workers.id
 }
 
-output "job_events_topic" {
-  description = "Topic workers publish 'job done' events to."
-  value       = google_pubsub_topic.job_events.id
-}
-
 output "dead_letter_subscription" {
   description = "Where jobs that failed every attempt end up, for inspection."
   value       = google_pubsub_subscription.measure_jobs_dead_letter.id
+}
+
+output "products_sql_connection_name" {
+  description = "Connection name of the products database (project:region:instance), for the Cloud SQL proxy or connector."
+  value       = data.google_sql_database_instance.products.connection_name
 }
