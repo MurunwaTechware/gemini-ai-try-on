@@ -267,6 +267,72 @@ gcloud storage cp -r results/* gs://YOUR_BUCKET/
 | `config.py` | Settings from the environment |
 | `static/` | The pages (sign-in, account, upload, measurements, try-on), the top bar (`nav.js`), Firebase start-up shared by the sign-in pages (`auth-client.js`) and the height picker |
 
+## Deploying to Cloud Run
+
+Everything is set up by Terraform (`infra/terraform`), run from your own machine as project Owner:
+
+| Service | What it is |
+|---|---|
+| `tryon-frontend` | The React app (separate repo) as a Node server. **The app's address.** It forwards API calls to the two below, so the browser sees one site |
+| `tryon-web` | This web server, using the bucket, Pub/Sub and Firestore, with sign-in on |
+| `tryon-worker` | A worker pool running `worker.py`: a fixed number of workers pulling jobs from Pub/Sub |
+| `tryon-products` | The products API, connected to the Cloud SQL database |
+
+Each runs as its own service account with only the roles it needs (`service_accounts.tf`). The first deployment goes in this order, because the services need images before they can be created.
+
+**1. Create the registry, service accounts, secret and CI identity.** With `deploy_services` left `false` in `terraform.tfvars`:
+```
+cd infra/terraform
+terraform init
+terraform plan        # expect only additions: "0 to destroy"
+terraform apply
+```
+
+**2. Put the products database's connection string in its secret.** In the console: Security → Secret Manager → `tryon-products-database-url` → **New version**, and paste the same value as `DATABASE_URL` in your `.env` (`postgresql://postgres:<password>@localhost:5432/ProductsDB`; Cloud Run replaces the host). Using the console avoids PowerShell adding a newline to the end, which would break it.
+
+**3. Build and push the three images** (Docker Desktop). From this folder:
+```
+gcloud auth configure-docker africa-south1-docker.pkg.dev
+$repo = terraform -chdir=infra/terraform output -raw image_repository
+docker build --platform linux/amd64 -t "$repo/backend:v1" .
+docker push "$repo/backend:v1"
+docker build --platform linux/amd64 -t "$repo/products:v1" superbalist
+docker push "$repo/products:v1"
+```
+Then from the frontend's folder, with `$repo` set the same way:
+```
+docker build --platform linux/amd64 -t "$repo/frontend:v1" .
+docker push "$repo/frontend:v1"
+```
+
+**4. Create the services.** Add to `terraform.tfvars` (the images are the ones you just pushed):
+```
+deploy_services  = true
+backend_image    = "africa-south1-docker.pkg.dev/YOUR_PROJECT_ID/tryon/backend:v1"
+products_image   = "africa-south1-docker.pkg.dev/YOUR_PROJECT_ID/tryon/products:v1"
+frontend_image   = "africa-south1-docker.pkg.dev/YOUR_PROJECT_ID/tryon/frontend:v1"
+firebase_api_key = "the FIREBASE_API_KEY from .env"
+allowed_emails   = "@techware.tech,someone@gmail.com"
+```
+then `terraform apply` again. `terraform output app_url` prints the app's address.
+
+**5. Let Google sign-in work there.** Firebase console → Authentication → Settings → Authorized domains → **Add domain**: the host of `app_url` (without `https://`).
+
+**6. Check it.** Open `app_url`, sign in, scan, try on, save. Logs: Cloud Run → the service → **Logs**. Jobs: Firestore `measurement_jobs` and the Pub/Sub subscription's metrics.
+
+### Updating a deployed service
+
+Terraform ignores which image a service runs once it exists, so new versions don't need it. Build and push a new tag (`v2`, ...), then:
+```
+gcloud run deploy tryon-web --image "$repo/backend:v2" --region africa-south1
+gcloud run worker-pools deploy tryon-worker --image "$repo/backend:v2" --region africa-south1
+```
+The web server and worker share the backend image, so deploy both. GitHub Actions will do this on every push to the main branch: Terraform has already set up its identity (`cicd.tf`; `terraform output deployer_service_account` and `workload_identity_provider` are what the workflow needs).
+
+Settings (environment, sizes, who may sign in) stay in Terraform: change `terraform.tfvars` or the `.tf` files and `terraform apply`. For example, adding someone to `allowed_emails` takes effect within a minute.
+
+**Costs:** the worker pool runs all the time (one instance by default). The web server, frontend and products API scale to zero when nobody's using them, and the first visit after a quiet spell takes a few seconds longer.
+
 ## Troubleshooting
 
 ### The browser says `ERR_ADDRESS_INVALID`
