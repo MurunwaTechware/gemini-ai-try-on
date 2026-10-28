@@ -1,6 +1,7 @@
-"""Measurement worker: takes jobs from the queue, runs them, and announces when each is done.
+"""Measurement worker: takes jobs from the queue and runs them. Each job's status record in Firestore
+(job_status.py) is what tells the waiting page that it has started and finished.
 
-Run alongside the web server when QUEUE_BACKEND=rabbitmq:
+Run alongside the web server when QUEUE_BACKEND is rabbitmq or pubsub:
     python worker.py
 Start more copies (here or on other machines) to process more jobs in parallel.
 """
@@ -18,24 +19,22 @@ async def main() -> None:
     queue = create_queue()
     await queue.connect()
 
-    async def handle(job_id: str) -> None:
-        job_dir = config.RUNS_DIR / job_id
+    async def handle(user_id: str, job_id: str) -> None:
+        job_dir = jobs.job_path(user_id, job_id)   # raises on a malformed message, so it's rejected
         # A redelivered job (the previous worker died before acknowledging) may already be done;
-        # skip the model call rather than paying for it twice
-        if jobs.is_finished(job_dir):
-            log.info("job %s already finished, re-announcing", job_id)
+        # skip the model call rather than paying for it twice, but make sure its status record says so
+        if await asyncio.to_thread(jobs.is_finished, job_dir):   # a network call with the bucket
+            log.info("job %s already finished, updating its status", job_id)
+            await jobs.report_finished(user_id, job_dir)
         else:
             log.info("job %s started", job_id)
-            await jobs.run_measurement(job_dir)
+            await jobs.run_measurement(user_id, job_dir)   # updates the status record as it goes
             log.info("job %s finished", job_id)
-        # Announce before the message is acknowledged, so a crash here means a redelivery
-        # (handled by the check above) rather than a browser that never hears back
-        await queue.publish_done(job_id)
 
     await queue.consume_jobs(handle, concurrency=config.WORKER_CONCURRENCY)
     log.info("waiting for jobs (up to %d at a time); Ctrl+C to stop", config.WORKER_CONCURRENCY)
     try:
-        await asyncio.Future()   # run until stopped
+        await queue.wait_closed()   # until stopped, or the queue fails for good (then the error shows here)
     finally:
         await queue.close()
 

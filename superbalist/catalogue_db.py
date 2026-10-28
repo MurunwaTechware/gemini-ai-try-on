@@ -1,0 +1,237 @@
+"""
+Catalogue data-access layer (Postgres)
+======================================
+Clean Python functions the API calls instead of writing SQL inline.
+All the grid/browse/filter/search/paginate/single-product queries live here.
+
+SETUP
+    pip install psycopg2-binary python-dotenv
+    Set DATABASE_URL="postgresql://user:pass@host:5432/dbname" in the project's .env (one folder up),
+    or in the environment, which wins over .env.
+
+USAGE
+    import catalogue_db as db
+    page  = db.browse(gender="women", category="dresses", q="linen", page=1)
+    item  = db.get_product(1764584)
+    cards = db.brand_cards()
+
+FILTER RULES (what each filter actually matches)
+    q        -> name OR brand contains the text   (case-insensitive)
+    colour   -> colour contains the text          (case-insensitive, so "black"
+                matches "Black" and "black & dark blue patterned")
+    brand    -> exact brand name
+    gender / category / subcategory -> exact
+    min_price / max_price -> current (possibly reduced) price
+"""
+
+import os
+import queue
+import threading
+from pathlib import Path
+
+import psycopg2
+from dotenv import load_dotenv
+from psycopg2 import InterfaceError, OperationalError
+from psycopg2.extras import RealDictCursor
+
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")   # the project's .env; never overrides real env vars
+DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://localhost:5432/tryon")
+# Replaces only the host in DATABASE_URL. compose.yaml sets it to the proxy's service name, so the one
+# DATABASE_URL in .env (localhost:5432) works both outside Docker and inside it.
+DATABASE_HOST = os.environ.get("DATABASE_HOST")
+PAGE_SIZE = 24
+POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "8"))   # connections kept open; the db-g1-small allows 50 in all
+
+# Allowed sort options -> SQL ORDER BY (whitelist; never interpolate user input)
+_SORTS = {
+    "newest":     "last_synced DESC, id DESC",
+    "price_asc":  "price ASC NULLS LAST, id",
+    "price_desc": "price DESC NULLS LAST, id",
+}
+
+
+# Connections are kept and reused. Opening one to Cloud SQL takes a TLS handshake and login with the
+# instance (about 2.5 s from South Africa to us-east1), and many at once can fail; a reused one costs a
+# single round trip. Not psycopg2's own pool: that closes every connection above its minimum when it's
+# returned, and opens new ones while holding a lock, so a burst of requests queues behind handshakes.
+_idle = queue.LifoQueue()   # open connections not in use, at most POOL_SIZE; the most recently used is reused first
+_slots = threading.BoundedSemaphore(POOL_SIZE)   # at most POOL_SIZE in use; further queries wait for one
+
+
+def _connect():
+    return psycopg2.connect(
+        DATABASE_URL, cursor_factory=RealDictCursor,
+        **({"host": DATABASE_HOST} if DATABASE_HOST else {}),   # keyword settings override the URL's
+        # Probe idle connections, so ones the network drops are noticed rather than hanging
+        keepalives=1, keepalives_idle=30, keepalives_interval=10, keepalives_count=3,
+    )
+
+
+def _run(sql, params=None):
+    """Run one read query on a pooled connection. If the connection was dropped while idle, or opening
+    one fails, it's thrown away and the query tried once more on a newly opened connection."""
+    with _slots:
+        for attempt in (1, 2):
+            conn = None
+            broken = False
+            try:
+                try:
+                    conn = _idle.get_nowait() if attempt == 1 else _connect()
+                except queue.Empty:
+                    conn = _connect()
+                conn.autocommit = True   # reads only: no transaction left open between queries
+                with conn.cursor() as cur:
+                    cur.execute(sql, params or [])
+                    return cur.fetchall()
+            except (OperationalError, InterfaceError):
+                broken = True
+                if attempt == 2:
+                    raise
+            finally:
+                if conn is not None:
+                    if broken or conn.closed:
+                        conn.close()
+                    else:
+                        _idle.put(conn)
+
+
+def _escape_like(text):
+    """Make user text safe inside LIKE: % and _ become literal characters."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _where(gender=None, category=None, subcategory=None, brand=None,
+           colour=None, min_price=None, max_price=None, q=None):
+    """Build one WHERE clause shared by browse() and count(), so the page and
+    its total can never disagree."""
+    # Only ever show live products. Stale ones (hidden by the sync) stay in the
+    # table but never reach the app.
+    where, params = ["active = TRUE"], []
+
+    if gender:
+        where.append("gender = %s"); params.append(gender)
+    if category:
+        where.append("category = %s"); params.append(category)
+    if subcategory:
+        where.append("subcategory = %s"); params.append(subcategory)
+    if brand:
+        where.append("brand = %s"); params.append(brand)
+    if colour:
+        where.append("colour ILIKE %s"); params.append(f"%{_escape_like(colour)}%")
+    if min_price is not None:
+        where.append("price >= %s"); params.append(min_price)
+    if max_price is not None:
+        where.append("price <= %s"); params.append(max_price)
+    if q:
+        term = f"%{_escape_like(q.strip())}%"
+        where.append("(name ILIKE %s OR brand ILIKE %s)"); params.extend([term, term])
+
+    return ("WHERE " + " AND ".join(where)) if where else "", params
+
+
+# ---------------------------------------------------------------------------
+# Grid / browse (filters + search + sort + pagination, all combined)
+# ---------------------------------------------------------------------------
+def browse(gender=None, category=None, subcategory=None, brand=None,
+           colour=None, min_price=None, max_price=None, q=None,
+           sort="newest", page=1, page_size=PAGE_SIZE):
+    """The main grid query. Any filter left as None is ignored.
+    Search (q) now works TOGETHER with the other filters, so searching on a
+    brand page stays inside that brand."""
+    where_sql, params = _where(gender, category, subcategory, brand,
+                               colour, min_price, max_price, q)
+    order_sql = _SORTS.get(sort, _SORTS["newest"])
+    offset = (max(page, 1) - 1) * page_size
+
+    sql = f"""
+        SELECT id, name, brand, price, was_price, on_sale, currency, colour,
+               gender, category, subcategory, url, images
+        FROM products
+        {where_sql}
+        ORDER BY {order_sql}
+        LIMIT %s OFFSET %s;
+    """
+    return _run(sql, params + [page_size, offset])
+
+
+def count(gender=None, category=None, subcategory=None, brand=None,
+          colour=None, min_price=None, max_price=None, q=None):
+    """Total matches for a filter set — used for page counts."""
+    where_sql, params = _where(gender, category, subcategory, brand,
+                               colour, min_price, max_price, q)
+    rows = _run(f"SELECT count(*) AS n FROM products {where_sql};", params)
+    return rows[0]["n"]
+
+
+def search(term, gender=None, page=1, page_size=PAGE_SIZE):
+    """Kept for backwards compatibility — browse(q=...) is preferred."""
+    return browse(gender=gender, q=term, page=page, page_size=page_size)
+
+
+# ---------------------------------------------------------------------------
+# Single product (the product page's base row)
+# ---------------------------------------------------------------------------
+def get_product(product_id):
+    # Product pages may still open a hidden product by direct link (e.g. a
+    # wishlist item), so we don't filter active here — the grids already do.
+    rows = _run("SELECT * FROM products WHERE id = %s;", [product_id])
+    return rows[0] if rows else None
+
+
+# ---------------------------------------------------------------------------
+# Filter-menu helpers
+# ---------------------------------------------------------------------------
+def distinct_brands(gender=None):
+    if gender:
+        rows = _run("SELECT DISTINCT brand FROM products WHERE active = TRUE AND gender = %s AND brand IS NOT NULL ORDER BY brand;", [gender])
+    else:
+        rows = _run("SELECT DISTINCT brand FROM products WHERE active = TRUE AND brand IS NOT NULL ORDER BY brand;")
+    return [r["brand"] for r in rows]
+
+
+def distinct_categories(gender=None, brand=None):
+    """Categories that actually have products in this scope — so a brand page
+    only offers categories that brand sells."""
+    where, params = ["active = TRUE", "category IS NOT NULL"], []
+    if gender:
+        where.append("gender = %s"); params.append(gender)
+    if brand:
+        where.append("brand = %s"); params.append(brand)
+    rows = _run(f"SELECT DISTINCT category FROM products WHERE {' AND '.join(where)} ORDER BY category;", params)
+    return [r["category"] for r in rows]
+
+
+def brand_cards(gender=None):
+    """One row per brand for the Brands page: name, how many products we hold,
+    and a cover image taken from that brand's most recently synced product."""
+    gender_sql = "AND gender = %s" if gender else ""
+    params = [gender, gender] if gender else []
+    sql = f"""
+        SELECT b.brand AS name, b.n AS count, cover.img AS img
+        FROM (
+            SELECT brand, count(*) AS n
+            FROM products
+            WHERE active = TRUE AND brand IS NOT NULL {gender_sql}
+            GROUP BY brand
+        ) b
+        LEFT JOIN LATERAL (
+            SELECT COALESCE(images->0->>'full', images->0->>'thumb') AS img
+            FROM products p
+            WHERE p.active = TRUE AND p.brand = b.brand {gender_sql.replace('gender', 'p.gender')}
+              AND jsonb_typeof(p.images) = 'array'
+              AND jsonb_array_length(p.images) > 0
+            ORDER BY p.last_synced DESC
+            LIMIT 1
+        ) cover ON true
+        ORDER BY b.brand;
+    """
+    return _run(sql, params)
+
+
+# Quick manual smoke test: python catalogue_db.py
+if __name__ == "__main__":
+    print("Brands (men):", distinct_brands("men")[:10])
+    print("Black items:", count(colour="black"))
+    first = browse(q="shirt", page_size=5)
+    for p in first:
+        print(f"  {p['id']}  {p['brand']:<18} R{p['price']}  {p['name'][:40]}")

@@ -15,7 +15,8 @@ You need [Docker Desktop](https://www.docker.com/products/docker-desktop/), the 
 gcloud auth application-default login
 gcloud auth application-default set-quota-project YOUR_PROJECT_ID
 
-# 2. Create your settings and set GOOGLE_CLOUD_PROJECT in it
+# 2. Create your settings and set GOOGLE_CLOUD_PROJECT and FIREBASE_API_KEY in it
+#    (FIREBASE_API_KEY: see Sign-in below; it's a one-time Firebase setup)
 cp .env.example .env            # Command Prompt (cmd): copy .env.example .env
 
 # 3. Start RabbitMQ, the web server and a worker
@@ -44,19 +45,32 @@ By default this runs in **in-process** mode: measurements run inside the web ser
 
 ## Configuration
 
-Settings are read from `.env`. Only the first one is required.
+Settings are read from `.env`. Only the first two are required, and only the first one with sign-in off.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `GOOGLE_CLOUD_PROJECT` | (required) | Google Cloud project that runs and pays for the Gemini calls |
+| `FIREBASE_API_KEY` | (required) | Firebase web API key for sign-in. Public by design, but keep it in `.env` with the rest. Not needed with `AUTH_ENABLED=false` |
+| `AUTH_ENABLED` | `true` | `false` turns sign-in off for local development: everyone is the demo user. See [Sign-in](#sign-in) |
+| `TRUSTED_ORIGINS` | (empty) | Deployed only: the frontend's address (e.g. `https://tryon-frontend-….run.app`) when its server forwards requests here. Without it, uploads and sign-in through the frontend are refused with "Request blocked" |
+| `ALLOWED_EMAILS` | (empty: anyone) | Who may sign in: addresses and whole domains, comma-separated, e.g. `@techware.tech,someone@gmail.com`. Checked on every request, so removing someone signs them out at once |
+| `FIREBASE_PROJECT_ID` | `GOOGLE_CLOUD_PROJECT` | Firebase project, if it's a different one |
+| `FIREBASE_AUTH_DOMAIN` | `<project>.firebaseapp.com` | Where Google's sign-in window comes from |
+| `SESSION_DAYS` | `5` | How long a sign-in lasts (Firebase allows up to 14) |
+| `COOKIE_SECURE` | `true` | Send the session cookie over HTTPS only. Set `false` only for Safari on `http://localhost` |
 | `GOOGLE_CLOUD_LOCATION` | `global` | Vertex AI location |
 | `GEMINI_API_KEY` | (unset) | Use an AI Studio API key instead of Vertex AI. Not needed with Google Cloud login |
 | `GEMINI_IMAGE_MODEL` | `gemini-3.1-flash-image` | Try-on model |
 | `GEMINI_MEASURE_MODEL` | `gemini-2.5-pro` | Measurement model |
-| `QUEUE_BACKEND` | `inprocess` | `inprocess` or `rabbitmq`. Docker Compose always uses `rabbitmq` |
+| `QUEUE_BACKEND` | `inprocess` | `inprocess`, `rabbitmq` (local) or `pubsub` (Google Pub/Sub, for the cloud). Docker Compose ignores it: see `DOCKER_QUEUE_BACKEND` |
+| `PUBSUB_TOPIC` | `tryon-measure-jobs` | With `pubsub`: the topic the web server publishes jobs to. A name, or the full path Terraform prints |
+| `PUBSUB_SUBSCRIPTION` | `tryon-measure-jobs-workers` | With `pubsub`: the subscription workers pull jobs from |
 | `RABBITMQ_URL` | `amqp://guest:guest@localhost:5672/` | Broker address when running without Docker. Use port `5673` for this project's Compose broker |
 | `WORKER_CONCURRENCY` | `4` | Jobs one worker runs at once. Keep workers × this within your Gemini quota |
-| `RUNS_DIR` | `results/` next to `main.py` | Where uploads and results are saved |
+| `JOB_STATUS_ENABLED` | `true` | `false` stops writing job status records to Firestore. The upload page then finds results by checking every 5 seconds. See [How it works](#how-it-works) |
+| `STORAGE_BACKEND` | `local` | Where uploads and results are kept: `local` (the `RUNS_DIR` folder) or `gcs` (the Cloud Storage bucket `RESULTS_BUCKET`). See [Storage](#storage) |
+| `RUNS_DIR` | `results/` next to `main.py` | The folder for uploads and results, with `STORAGE_BACKEND=local` |
+| `RESULTS_BUCKET` | (unset) | The bucket's name, with `STORAGE_BACKEND=gcs`. Terraform's `results_bucket` output |
 
 Docker Compose only:
 
@@ -65,65 +79,259 @@ Docker Compose only:
 | `WEB_PORT` | `8000` | Port the app is served on |
 | `RESULTS_DIR` | `./results` | Folder on your computer for uploads and results |
 | `GCLOUD_ADC` | Found automatically | Path to the Google login file, if it isn't in the default place |
+| `DOCKER_QUEUE_BACKEND` | `rabbitmq` | `pubsub` makes the web server and worker use the real Pub/Sub topics instead of the local RabbitMQ |
 
 ## Access
 
 The app logs in to Google Cloud with your own account (Application Default Credentials); there's no API key. Organisation policy may block API keys anyway.
 
-To let someone use the app with your project and its credits, the project Owner grants them two roles:
+To let someone run the app with your project and its credits, the project Owner grants them four roles:
 
 ```
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/aiplatform.user"
 gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/serviceusage.serviceUsageConsumer"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/firebaseauth.admin"
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/datastore.user"
+```
+
+People who run it with Pub/Sub (`QUEUE_BACKEND=pubsub`) need to publish jobs and pull them:
+
+```
+gcloud pubsub topics add-iam-policy-binding tryon-measure-jobs --project YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/pubsub.publisher"
+gcloud pubsub subscriptions add-iam-policy-binding tryon-measure-jobs-workers --project YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/pubsub.subscriber"
+```
+
+People who run it with the Cloud Storage bucket (`STORAGE_BACKEND=gcs`) also need access to the bucket's files:
+
+```
+gcloud storage buckets add-iam-policy-binding gs://YOUR_BUCKET --member="user:THEIR_EMAIL" --role="roles/storage.objectUser"
+```
+
+People who also run the products API (`superbalist/`) need one more:
+
+```
+gcloud projects add-iam-policy-binding YOUR_PROJECT_ID --member="user:THEIR_EMAIL" --role="roles/cloudsql.client"
 ```
 
 | Role | Shown in the console as | Why |
 |---|---|---|
 | `roles/aiplatform.user` | **Agent Platform User** (older pages: Vertex AI User) | Lets them call Gemini |
 | `roles/serviceusage.serviceUsageConsumer` | **Service Usage Consumer** | Lets their login bill usage to your project |
+| `roles/firebaseauth.admin` | **Firebase Authentication Admin** | Lets the server they run create and check sign-in sessions. Only needed by people running the server, not by people signing in to it |
+| `roles/datastore.user` | **Cloud Datastore User** | Lets the server and workers they run read and write user records and job status records in Firestore. Needed even with sign-in off. Also only for people running the server |
+| `roles/cloudsql.client` | **Cloud SQL Client** | Lets the Cloud SQL Auth Proxy connect to the products database. Reading data still needs the database password |
 
 Don't use **AI Platform Admin** (`roles/ml.admin`). Despite the name, it's for Google's retired AI Platform and doesn't include Gemini access. Avoid Owner or Editor too: those allow changing or deleting anything in the project. Usage by everyone counts against the project's billing account, so a budget alert (Billing → Budgets & alerts) is worth setting.
+
+## Sign-in
+
+Every page needs a sign-in (Firebase Authentication): **Continue with Google**, or an email and password. `/login` and `/account` are plain placeholder pages until the real frontend has its own.
+
+One-time setup, by a project Owner:
+
+1. In the [Firebase console](https://console.firebase.google.com/), **Add project** and pick the existing Google Cloud project.
+2. **Authentication → Get started**. Until this is done, sign-in fails with `auth/configuration-not-found`.
+3. **Authentication → Sign-in method**: enable **Google** and **Email/Password** (leave "Email link" off).
+4. **Project settings → Your apps → Add app → Web**. Copy `apiKey` from the config it shows into `.env` as `FIREBASE_API_KEY`.
+5. Under **Authentication → Settings → Authorized domains**, check that `localhost` is listed (newer projects may not include it) and add it if not. Add `127.0.0.1` too if you open the app at `http://127.0.0.1:8000`; otherwise Google sign-in fails there with `auth/unauthorized-domain`. Add any other address the app runs on too, e.g. the Cloud Run URL. Enter the hostname only, without `http://` or a port.
+6. Create the Firestore database for user records and job status records. Pick the location carefully: it can't be changed later. `africa-south1` keeps South African users' data in the country.
+   ```
+   gcloud services enable firestore.googleapis.com --project YOUR_PROJECT_ID
+   gcloud firestore databases create --project YOUR_PROJECT_ID --location africa-south1
+   ```
+
+The server checks sign-ins and saves user records with the same Google Cloud login as the Gemini calls, so the `set-quota-project` step in the quick start is needed here too. Firebase Authentication is free up to 50,000 monthly active users, and Firestore's free daily allowance easily covers one read and write per sign-in.
+
+How it fits together:
+
+1. `/login` signs in through the Firebase JS SDK, which gives the page a short-lived Firebase ID token.
+2. The page sends it to `POST /session`. The server verifies it, saves the user's record in Firestore (`users/<user ID>`: email, name and surname, contact number, Google profile picture, terms accepted), and sets its own **HttpOnly session cookie** (scripts can't read it). The page keeps nothing else.
+3. The browser sends the cookie with every request, including the `/job_events` stream, so no route needs tokens in headers or URLs.
+4. Every route takes the user ID from the cookie. Files are stored under `results/<user ID>/`, so a job ID from someone else's link gives 404.
+
+The account page (`/account`, or click your name in the top bar) has three sections:
+
+- **Account Info**: email; password (change it, or add one to a Google account); Continue with Google (connect it to a password account); name, surname and contact number, each edited in place. **Download information** saves everything the app keeps about the user as one JSON file.
+- **Measurement Profiles**: every upload, newest first, with links to its measurements and to try-on.
+- **Saved Try-ons**: each result the user saved, what it was made from, and the profile it came from.
+
+The name and surname start from the sign-in's name, split at the first space ("Jan van der Merwe" → "Jan", "van der Merwe"). Users can correct them; later sign-ins don't overwrite them.
+
+Email and password accounts:
+
+- Firebase stores and checks the passwords and sends the emails (verification, password reset). The app never sees a password.
+- A new account can't sign in until its email is verified: the server refuses the session. Signing in before then sends a fresh link.
+- One account per email. Someone who signed up with Google can add a password on `/account`, and someone who signed up with a password can connect Google there. Either way it stays the same account and user ID, so their measurements and try-ons stay with it. Firebase only adds a sign-in method for someone who has just signed in, so the page asks them to confirm with the method they already have.
+- Firebase doesn't reveal whether an email has an account (email enumeration protection, on by default). So a wrong password or a Google-only account both get the same message, with a hint to try Continue with Google.
+- Verification and reset emails come from `noreply@<project>.firebaseapp.com` and may land in spam. The wording and sender name are under **Authentication → Templates**.
+
+Requests that change something (`/session`, `/logout`, `/process_upload`, `/try-on`, `/try-on/save`, `PATCH /me`) must come from the app's own pages: the server checks the `Origin` header. If the frontend moves to a different domain from this server, that check and the cookie settings need revisiting.
+
+### Turning sign-in off
+
+For local development and demos, set `AUTH_ENABLED=false` in `.env` and restart. Then:
+
+- There's no sign-in page: `/login` goes straight into the app, and every request is the **demo user** (`demo-user`, the same ID as the frontend's mock user). Their files go in `results/demo-user/`.
+- Firebase sign-in isn't used and no user records are saved, so `FIREBASE_API_KEY` can stay empty. Gemini still needs the Google Cloud login from the quick start.
+- Job status records still go to Firestore (see [How it works](#how-it-works)), so the database from step 6 below is still used. Without it the app still works; the upload page just finds results up to 5 seconds later.
+- The demo user's details on `/account` live in memory: edits last until the server restarts.
+
+The server logs a warning at startup while sign-in is off. Never run a shared or public server this way: anyone who can reach it acts as the same user.
 
 ## How it works
 
 ```
-Browser ──upload──► web server ──saves photos──► results/<job>/
+Browser ──upload──► web server ──saves photos──► <user>/<job>/ in results/ or the bucket
                         │
                         └──job ID──► RabbitMQ [measure_jobs] ──► worker ──► Gemini
                                                                    │
-Browser ◄──"ready" (SSE)── web server ◄──"done"── [job_events] ◄────┘
+                                     writes measurement.json, then │
+Browser ◄──status, ready (SSE)── web server ◄──listens── Firestore measurement_jobs/<job> ◄──┘
 ```
 
-- The upload page waits on one open connection (`/job_events/<job>`, Server-Sent Events) and the server pushes `ready` or `failed` when the measurement finishes.
-- Queue messages carry only the job ID. The worker reads the photos from the job folder, so the web server and workers must share `results/`.
-- `job_queue.py` defines a small `JobQueue` interface. RabbitMQ is the only implementation for now; Google Pub/Sub or Cloud Tasks would be another class with the same methods.
+- The upload page waits on one open connection (`/job_events/<job>`, Server-Sent Events). The server pushes `status` as the job moves on (`queued`, then `measuring`), then `ready` or `failed` when it finishes.
+- Each job has a status record in Firestore, `measurement_jobs/<job ID>`: `status`, `user_id`, `error` and timestamps. The web server and worker update it (`job_status.py`), and the web server holding the page's connection listens to it, so it hears straight away whichever machine ran the job. Nothing polls Firestore.
+- The record only says when to look; the result is the file in the job folder, written first. The server also checks the folder every 5 seconds, so if Firestore can't be reached, measuring still works, just a few seconds slower. The log says `couldn't write job status` when that happens.
+- The records are in one collection rather than per user, so the Firestore console (Firestore → Data → `measurement_jobs`) shows everyone's jobs while debugging.
+- Records expire a day after their last change. Turn on the expiry once per project (Terraform does this too, in `infra/terraform/firestore.tf`):
+  ```
+  gcloud firestore fields ttls update expires_at --collection-group=measurement_jobs --enable-ttl --project YOUR_PROJECT_ID
+  ```
+- Queue messages carry only the user ID and job ID. The worker reads the photos from the job folder, so the web server and workers must share the storage: the same `results/` folder (Docker Compose mounts it into both), or the bucket. See [Storage](#storage).
+- `job_queue.py` defines a small `JobQueue` interface: publish a job, consume jobs. `QUEUE_BACKEND` picks RabbitMQ (local Docker) or Google Pub/Sub (the cloud). Both give each job to exactly one worker.
+- With Pub/Sub, the web server publishes to the `tryon-measure-jobs` topic and workers pull from the `tryon-measure-jobs-workers` subscription (`infra/terraform/pubsub.tf`). A job is acknowledged when it finishes. If the worker's handler fails, the job is handed back and retried with a growing delay; after 5 attempts it moves to the dead-letter queue, and an alert opens. If a worker dies mid-job, another worker gets it.
 
-Each upload gets its own folder:
+Each user has a folder holding their measurement profiles (one per upload) and the try-ons they saved:
 
 ```
-results/<YYYYMMDD-HHMMSS-xxxxxx>/
-├── front.*, left.*, right.*
-├── inputs.json                    height, weight, gender, age
-├── measurement.json               measurements in cm, body shape, warnings
-├── error.json                     only if measuring failed
-└── tryon-<YYYYMMDD-HHMMSS>/       one folder per try-on
-    ├── person.*, top.*, …         the photos used
-    ├── prompt.txt                 the exact prompt sent
-    └── result_N.*
+results/<user ID>/
+├── measurement_profiles/
+│   └── <YYYYMMDD-HHMMSS-xxxxxx>/      one folder per upload; its name is the job ID
+│       ├── front.*, left.*, right.*
+│       ├── inputs.json                height, weight, gender, age
+│       ├── measurement.json           measurements in cm, body shape, warnings
+│       └── error.json                 only if measuring failed
+└── saved_tryons/
+    └── <YYYYMMDD-HHMMSS-xxxxxx>/      one folder per save; the name is when it was saved
+        ├── result.*                   the result the user picked
+        ├── person.*, top.*, …         the photos it was made from
+        ├── prompt.txt                 the exact prompt that produced it
+        └── meta.json                  which measurement profile it came from (null if none), model
 ```
+
+Generating a try-on keeps nothing: the results go to the page only. **Save to my account** sends the chosen result back with the photos and rules it was made from, and the server writes the folder. The server rebuilds the prompt from the same rules, so `prompt.txt` matches what produced the result.
+
+Folders from before sign-in (directly under `results/`) and from before this layout (`results/<user ID>/<job ID>/`, `measurement-profiles/`, `try-ons/`) aren't picked up by the app.
 
 `results/` holds real people's photos and measurements. It's in `.gitignore`; keep it out of the repo and out of anything you share.
+
+### Storage
+
+Uploads and results go in one of two places, with the same layout in both (`storage.py`):
+
+- **`STORAGE_BACKEND=local`** (default): the `results/` folder (`RUNS_DIR`). Fine on one machine, including Docker Compose, which shares the folder between the web server and the worker.
+- **`STORAGE_BACKEND=gcs`**: the Cloud Storage bucket `RESULTS_BUCKET`, private and in `africa-south1` (`infra/terraform/storage.tf`). Needed once the web server and workers run on different machines, e.g. Cloud Run. Set both in `.env`:
+  ```
+  STORAGE_BACKEND=gcs
+  RESULTS_BUCKET=YOUR_PROJECT_ID-tryon-results
+  ```
+
+In the bucket, `<user ID>/measurement_profiles/<job ID>/front.jpg` is one file whose name contains slashes; the console shows them as folders. Browse them in the console (Cloud Storage → Buckets), or list them:
+
+```
+gcloud storage ls gs://YOUR_BUCKET/<user ID>/measurement_profiles/
+```
+
+Photos still reach the pages through the server (`/me/files/...`), which checks the signed-in user first, so the bucket never needs to be public.
+
+Switching to the bucket doesn't move what's already in `results/`. To keep it, copy it across first (the folder layout is the same):
+
+```
+gcloud storage cp -r results/* gs://YOUR_BUCKET/
+```
 
 | File | What it does |
 |---|---|
 | `main.py` | Web server: pages, uploads, event stream, try-on |
+| `auth.py` | Sign-in: session cookie, `/login`, `/session`, `/logout` |
+| `account.py` | `/account` and the user's own data: details, sign-in methods, profiles, saved try-ons, photos, download |
+| `user_store.py` | User records in Firestore, saved at each sign-in |
+| `models/Entities/Users.py` | The `User` record: what the app keeps about a user beyond Firebase's sign-in data |
 | `worker.py` | Queue worker: takes measurement jobs and runs them |
 | `jobs.py` | Measurement job logic, shared by the web server and worker |
+| `job_status.py` | Job status records in Firestore: written as a job moves on, listened to by the event stream |
+| `storage.py` | Where uploads and results are kept: the local folder or the Cloud Storage bucket |
 | `job_queue.py` | Queue interface and its RabbitMQ implementation |
 | `gemini_client.py` | Gemini calls; no web code |
 | `prompts.py` | All prompt text |
 | `config.py` | Settings from the environment |
-| `static/` | The three pages and the height picker |
+| `static/` | The pages (sign-in, account, upload, measurements, try-on), the top bar (`nav.js`), Firebase start-up shared by the sign-in pages (`auth-client.js`) and the height picker |
+
+## Deploying to Cloud Run
+
+Everything is set up by Terraform (`infra/terraform`), run from your own machine as project Owner:
+
+| Service | What it is |
+|---|---|
+| `tryon-frontend` | The React app (separate repo) as a Node server. **The app's address.** It forwards API calls to the two below, so the browser sees one site |
+| `tryon-web` | This web server, using the bucket, Pub/Sub and Firestore, with sign-in on |
+| `tryon-worker` | A worker pool running `worker.py`: a fixed number of workers pulling jobs from Pub/Sub |
+| `tryon-products` | The products API, connected to the Cloud SQL database |
+
+Each runs as its own service account with only the roles it needs (`service_accounts.tf`). The first deployment goes in this order, because the services need images before they can be created.
+
+**1. Create the registry, service accounts, secret and CI identity.** With `deploy_services` left `false` in `terraform.tfvars`:
+```
+cd infra/terraform
+terraform init
+terraform plan        # expect only additions: "0 to destroy"
+terraform apply
+```
+
+**2. Put the products database's connection string in its secret.** In the console: Security → Secret Manager → `tryon-products-database-url` → **New version**, and paste the same value as `DATABASE_URL` in your `.env` (`postgresql://postgres:<password>@localhost:5432/ProductsDB`; Cloud Run replaces the host). Using the console avoids PowerShell adding a newline to the end, which would break it.
+
+**3. Build and push the three images** (Docker Desktop). From this folder:
+```
+gcloud auth configure-docker africa-south1-docker.pkg.dev
+$repo = terraform -chdir=infra/terraform output -raw image_repository
+docker build --platform linux/amd64 -t "$repo/backend:v1" .
+docker push "$repo/backend:v1"
+docker build --platform linux/amd64 -t "$repo/products:v1" superbalist
+docker push "$repo/products:v1"
+```
+Then from the frontend's folder, with `$repo` set the same way:
+```
+docker build --platform linux/amd64 -t "$repo/frontend:v1" .
+docker push "$repo/frontend:v1"
+```
+
+**4. Create the services.** Add to `terraform.tfvars` (the images are the ones you just pushed):
+```
+deploy_services  = true
+backend_image    = "africa-south1-docker.pkg.dev/YOUR_PROJECT_ID/tryon/backend:v1"
+products_image   = "africa-south1-docker.pkg.dev/YOUR_PROJECT_ID/tryon/products:v1"
+frontend_image   = "africa-south1-docker.pkg.dev/YOUR_PROJECT_ID/tryon/frontend:v1"
+firebase_api_key = "the FIREBASE_API_KEY from .env"
+allowed_emails   = "@techware.tech,someone@gmail.com"
+```
+then `terraform apply` again. `terraform output app_url` prints the app's address.
+
+**5. Let Google sign-in work there.** Firebase console → Authentication → Settings → Authorized domains → **Add domain**: the host of `app_url` (without `https://`).
+
+**6. Check it.** Open `app_url`, sign in, scan, try on, save. Logs: Cloud Run → the service → **Logs**. Jobs: Firestore `measurement_jobs` and the Pub/Sub subscription's metrics.
+
+### Updating a deployed service
+
+Terraform ignores which image a service runs once it exists, so new versions don't need it. Build and push a new tag (`v2`, ...), then:
+```
+gcloud run deploy tryon-web --image "$repo/backend:v2" --region africa-south1
+gcloud run worker-pools deploy tryon-worker --image "$repo/backend:v2" --region africa-south1
+```
+The web server and worker share the backend image, so deploy both. GitHub Actions will do this on every push to the main branch: Terraform has already set up its identity (`cicd.tf`; `terraform output deployer_service_account` and `workload_identity_provider` are what the workflow needs).
+
+Settings (environment, sizes, who may sign in) stay in Terraform: change `terraform.tfvars` or the `.tf` files and `terraform apply`. For example, adding someone to `allowed_emails` takes effect within a minute.
+
+**Costs:** the worker pool runs all the time (one instance by default). The web server, frontend and products API scale to zero when nobody's using them, and the first visit after a quiet spell takes a few seconds longer.
 
 ## Troubleshooting
 
@@ -172,7 +380,7 @@ This project's broker dashboard is **http://localhost:15673**. Port 15672 belong
 With one job at a time the graphs barely move: **Ready** stays at 0 because a worker is already waiting, and **Unacked** shows 1 while Gemini is working (about 30 seconds). To watch jobs queue up, run `docker compose stop worker`, upload a few times, then `docker compose start worker`.
 
 ### `measure_jobs` or `job_events` appeared in another project's RabbitMQ
-The app creates these on whatever broker `RABBITMQ_URL` points to. Port 5672 is the usual default for *other* RabbitMQ installs. Point `.env` at port **5673**, then remove the leftovers from the other broker:
+The app creates `measure_jobs` on whatever broker `RABBITMQ_URL` points to (older versions also created the `job_events` exchange). Port 5672 is the usual default for *other* RabbitMQ installs. Point `.env` at port **5673**, then remove the leftovers from the other broker:
 
 ```
 docker exec <other-rabbitmq-container> rabbitmqctl delete_queue measure_jobs
@@ -181,8 +389,47 @@ docker exec <other-rabbitmq-container> rabbitmqctl delete_exchange job_events
 
 Check first that `measure_jobs` has 0 messages (dashboard, or `rabbitmqctl list_queues name messages consumers`).
 
+### Sign-in fails with `403`, `PERMISSION_DENIED` or "requires a quota project"
+
+The server checks sign-ins with your Google Cloud login. Run `gcloud auth application-default set-quota-project YOUR_PROJECT_ID`, and check you have **Firebase Authentication Admin** (see [Access](#access)). Restart the server afterwards.
+
+### "Sign-in is unavailable right now" after choosing an account
+
+The server couldn't save the user record in Firestore. Its log says why, after `couldn't save the user record`:
+- **`Cloud Firestore API has not been used` or `SERVICE_DISABLED`**, or **`database (default) does not exist`**: the database hasn't been created. See step 6 of [Sign-in](#sign-in).
+- **`403` / `PERMISSION_DENIED`**: you're missing **Cloud Datastore User** (see [Access](#access)).
+
+### "This account doesn't have access to this app yet"
+The account's email isn't on `ALLOWED_EMAILS`. Add the address (or its `@domain`) to `ALLOWED_EMAILS` in `.env`, or in the Cloud Run service's settings once deployed, and restart. The server logs `sign-in refused, not on ALLOWED_EMAILS` with the address.
+
+### Signed in, but sent straight back to the sign-in page
+
+The session cookie isn't being kept. On `http://localhost` in Safari, set `COOKIE_SECURE=false` in `.env`. Elsewhere, open the app as `http://localhost:8000`, not by a LAN address such as `http://192.168.x.x:8000`: over plain HTTP, browsers only keep `Secure` cookies for `localhost`.
+
 ### Port 8000 is in use, or the page says `{"detail":"Not Found"}`
 Another app is already using port 8000. A different app's server answering is what produces that "Not Found". Use another port: set `WEB_PORT=8001` in `.env` (Docker), or add `--port 8001` to the `uvicorn` command (no Docker), then open http://localhost:8001.
+
+### `couldn't write job status` or `couldn't listen to job status` in the log
+The server or worker couldn't reach the job status records in Firestore. Measuring still works: the upload page finds the result by checking the job folder, up to 5 seconds late. The server tries Firestore again a minute later. The message says why:
+- **`403` / `PermissionDenied`**: you're missing **Cloud Datastore User** (see [Access](#access)).
+- **`database (default) does not exist`** or **`SERVICE_DISABLED`**: the Firestore database hasn't been created. See step 6 of [Sign-in](#sign-in).
+- **`DefaultCredentialsError`**: no Google Cloud login. See the quick start.
+
+To stop using the records altogether, set `JOB_STATUS_ENABLED=false`.
+
+### `403` or `does not have storage.objects…` with `STORAGE_BACKEND=gcs`
+Your Google Cloud login can't read or write the bucket's files. Grant **Storage Object User** on the bucket (see [Access](#access)), then restart. Check `RESULTS_BUCKET` is the exact bucket name (`terraform output results_bucket`), without `gs://`.
+
+### `PermissionDenied` or `NotFound` from Pub/Sub
+With `QUEUE_BACKEND=pubsub`, the upload fails with "The measuring service is unavailable", or the worker stops with this error.
+- **`NotFound`**: the topic or subscription doesn't exist, or `PUBSUB_TOPIC` / `PUBSUB_SUBSCRIPTION` name the wrong ones. Check with `terraform output`. They're created by `infra/terraform`.
+- **`PermissionDenied` / `403`**: your Google Cloud login can't publish or pull. Grant the Pub/Sub roles in [Access](#access).
+
+### Jobs wait forever with `QUEUE_BACKEND=pubsub`
+The page says "Waiting for a free worker…" and nothing happens: no worker is pulling from the subscription. Start one (`python worker.py`, or `DOCKER_QUEUE_BACKEND=pubsub` with Docker Compose). Both the web server and the worker must use Pub/Sub: a RabbitMQ worker never sees Pub/Sub jobs.
+
+### Profiles or saved try-ons disappeared after switching to the bucket
+They're still in `results/`: switching doesn't move files. Copy them across (see [Storage](#storage)), or switch back with `STORAGE_BACKEND=local`.
 
 ### "Measuring was interrupted because the server restarted"
 Without Docker in in-process mode, measurements run inside the web server, so a restart cancels them. `--reload` restarts it on every file save. Upload again. Queue mode avoids this, because jobs wait in RabbitMQ until a worker finishes them.

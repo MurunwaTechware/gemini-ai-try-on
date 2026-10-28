@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Tailor — Sign in</title>
+    <!-- Placeholder sign-in page until the real frontend has its own. Logic: see auth.py -->
+    <style>
+        * { box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            margin: 0; padding: 40px 16px; background: #f5f5f7; color: #1d1d1f;
+            min-height: 100vh; display: flex; align-items: center; justify-content: center;
+        }
+        .card {
+            width: 100%; max-width: 400px; background: white; border-radius: 18px; padding: 40px 32px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.06); text-align: center;
+        }
+        h1 { margin: 0 0 8px; font-size: 26px; }
+        .subtitle { color: #6e6e73; margin: 0 0 28px; font-size: 15px; }
+        .btn {
+            width: 100%; padding: 14px; border-radius: 12px; font-size: 16px; font-weight: 600;
+            cursor: pointer; font-family: inherit; display: flex; align-items: center;
+            justify-content: center; gap: 10px; transition: background 0.2s;
+        }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; }
+        .btn-google { background: white; color: #1d1d1f; border: 1px solid #d2d2d7; }
+        .btn-google:hover:not(:disabled) { background: #f5f5f7; }
+        .btn-primary { background: #0071e3; color: white; border: none; }
+        .btn-primary:hover:not(:disabled) { background: #0077ed; }
+        .btn-plain { background: none; border: none; color: #0071e3; font-weight: 500; margin-top: 8px; }
+        .link {
+            background: none; border: none; padding: 0; color: #0071e3; font: inherit; font-weight: 500;
+            cursor: pointer;
+        }
+        .link:disabled { opacity: 0.6; cursor: default; }
+        .divider {
+            display: flex; align-items: center; gap: 12px; margin: 20px 0; color: #86868b; font-size: 13px;
+        }
+        .divider::before, .divider::after { content: ""; flex: 1; border-top: 1px solid #e5e5e7; }
+        form { display: flex; flex-direction: column; gap: 10px; }
+        input {
+            width: 100%; padding: 13px 14px; border: 1px solid #d2d2d7; border-radius: 12px;
+            font: inherit; font-size: 16px; color: inherit;
+        }
+        input:focus { outline: none; border-color: #0071e3; box-shadow: 0 0 0 3px rgba(0,113,227,0.15); }
+        .forgot { margin-top: 12px; font-size: 14px; }
+        .switch { margin: 16px 0 0; font-size: 14px; color: #6e6e73; }
+        .who { font-size: 15px; margin: 0 0 20px; }
+        .who strong { word-break: break-all; }
+        .status { min-height: 20px; margin-top: 16px; font-size: 14px; color: #6e6e73; }
+        .status.error { color: #d70015; }
+        .note { margin-top: 24px; font-size: 12px; color: #86868b; }
+        [hidden] { display: none !important; }
+    </style>
+</head>
+<body>
+    <main class="card">
+        <h1>Sign in</h1>
+        <p class="subtitle">Your photos and measurements are only visible to you.</p>
+
+        <div id="signed-out">
+            <button id="google" class="btn btn-google" type="button" disabled>
+                <svg width="18" height="18" viewBox="0 0 48 48" aria-hidden="true">
+                    <path fill="#EA4335" d="M24 9.5c3.5 0 6.6 1.2 9.1 3.6l6.8-6.8C35.8 2.4 30.3 0 24 0 14.6 0 6.6 5.4 2.6 13.2l7.9 6.2C12.4 13.7 17.7 9.5 24 9.5z"/>
+                    <path fill="#4285F4" d="M46.1 24.6c0-1.6-.1-3.1-.4-4.6H24v9h12.4c-.5 2.9-2.2 5.3-4.6 6.9l7.4 5.8c4.3-4 6.9-9.9 6.9-17.1z"/>
+                    <path fill="#FBBC05" d="M10.5 28.6c-.5-1.4-.8-3-.8-4.6s.3-3.2.8-4.6l-7.9-6.2C1 16.5 0 20.1 0 24s1 7.5 2.6 10.8l7.9-6.2z"/>
+                    <path fill="#34A853" d="M24 48c6.5 0 11.9-2.1 15.8-5.8l-7.4-5.8c-2.1 1.4-4.8 2.3-8.4 2.3-6.3 0-11.6-4.2-13.5-10l-7.9 6.2C6.6 42.6 14.6 48 24 48z"/>
+                </svg>
+                Continue with Google
+            </button>
+
+            <div class="divider">or</div>
+
+            <form id="email-form">
+                <input id="name" type="text" autocomplete="name" placeholder="Your name" aria-label="Your name" hidden>
+                <input id="email" type="email" autocomplete="email" placeholder="Email" aria-label="Email" required>
+                <input id="password" type="password" autocomplete="current-password" placeholder="Password"
+                       aria-label="Password" required>
+                <button id="submit" class="btn btn-primary" type="submit" disabled>Sign in</button>
+            </form>
+            <div class="forgot"><button id="forgot" class="link" type="button" disabled>Forgot password?</button></div>
+            <p class="switch">
+                <span id="switch-text">New here?</span>
+                <button id="switch" class="link" type="button">Create an account</button>
+            </p>
+        </div>
+
+        <div id="signed-in" hidden>
+            <p class="who">Signed in as <strong id="who-email"></strong></p>
+            <button id="continue" class="btn btn-primary">Continue</button>
+            <button id="signout" class="btn btn-plain">Sign out</button>
+        </div>
+
+        <div id="status" class="status" role="status"></div>
+        <p class="note">Test page. Sign-in uses Firebase Authentication.</p>
+    </main>
+
+    <script type="module">
+        // Firebase only does the signing in here. The server then swaps the result for its own
+        // HttpOnly session cookie, and the page never handles a long-lived token itself.
+        import {
+            GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword,
+            sendEmailVerification, sendPasswordResetEmail, updateProfile, getAdditionalUserInfo, signOut,
+        } from "https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js";
+        import { startAuth, errorMessage, isCancelled } from "/static/auth-client.js";
+
+        const $ = (id) => document.getElementById(id);
+        const statusEl = $("status");
+        const setStatus = (msg, isError = false) => {
+            statusEl.textContent = msg;
+            statusEl.classList.toggle("error", isError);
+        };
+
+        // Same rule as the server's safe_next: only paths on this site
+        function safeNext(path) {
+            if (!path || !path.startsWith("/") || path.startsWith("//") || path.includes("\\")) return "/";
+            return path;
+        }
+        const next = safeNext(new URLSearchParams(location.search).get("next"));
+
+        function showSignedIn(email) {
+            $("who-email").textContent = email || "your account";
+            $("signed-out").hidden = true;
+            $("signed-in").hidden = false;
+        }
+
+        function showSignedOut() {
+            $("signed-in").hidden = true;
+            $("signed-out").hidden = false;
+        }
+
+        // "Sign in" or "Create account": the same fields, plus a name when creating
+        let creating = false;
+        function setMode(create) {
+            creating = create;
+            $("name").hidden = !create;
+            $("name").required = create;
+            $("password").autocomplete = create ? "new-password" : "current-password";
+            if (create) $("password").minLength = 8; else $("password").removeAttribute("minlength");
+            $("submit").textContent = create ? "Create account" : "Sign in";
+            $("forgot").parentElement.hidden = create;
+            $("switch-text").textContent = create ? "Already have an account?" : "New here?";
+            $("switch").textContent = create ? "Sign in" : "Create an account";
+            setStatus("");
+        }
+
+        // Already signed in? The cookie is HttpOnly, so ask the server rather than reading it
+        try {
+            const res = await fetch("/me");
+            if (res.ok) showSignedIn((await res.json()).email);
+        } catch { /* treat as signed out */ }
+
+        let auth;
+        try {
+            auth = await startAuth();
+            for (const id of ["google", "submit", "forgot"]) $(id).disabled = false;
+        } catch (err) {
+            setStatus(`Sign-in couldn't start: ${err.message}`, true);
+        }
+
+        // Runs one sign-in action with the buttons disabled, and shows what went wrong if it fails
+        async function run(action) {
+            const buttons = ["google", "submit", "forgot", "switch"].map($);
+            buttons.forEach((b) => (b.disabled = true));
+            try {
+                await action();
+            } catch (err) {
+                await signOut(auth).catch(() => {});
+                if (isCancelled(err)) setStatus("");
+                else setStatus(errorMessage(err), true);
+            } finally {
+                buttons.forEach((b) => (b.disabled = false));
+            }
+        }
+
+        // Swap Firebase's sign-in for the server's session cookie, then go on to the page that sent us here
+        async function finishSignIn(user) {
+            setStatus("Signing in…");
+            const res = await fetch("/session", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ id_token: await user.getIdToken() }),
+            });
+            await signOut(auth);   // drop Firebase's own copy; the cookie carries the sign-in now
+            if (!res.ok) {
+                const data = await res.json().catch(() => ({}));
+                throw new Error(data.detail || `Sign-in failed (${res.status}).`);
+            }
+            location.replace(next);   // replace: Back shouldn't return to the login page
+        }
+
+        async function signInWithPassword() {
+            const email = $("email").value.trim();
+            const { user } = await signInWithEmailAndPassword(auth, email, $("password").value);
+            if (!user.emailVerified) {
+                // The server won't start a session for an unverified email, so send a fresh link instead.
+                // Firebase limits how often it sends these; if it refuses, the earlier link still works.
+                await sendEmailVerification(user).catch(() => {});
+                await signOut(auth);
+                setStatus(`Verify your email first: we've sent a link to ${email}. Open it, then sign in.`, true);
+                return;
+            }
+            await finishSignIn(user);
+        }
+
+        async function createAccount() {
+            const email = $("email").value.trim();
+            const { user } = await createUserWithEmailAndPassword(auth, email, $("password").value);
+            await updateProfile(user, { displayName: $("name").value.trim() });
+            await sendEmailVerification(user);
+            await signOut(auth);   // no session until the email is verified
+            setMode(false);
+            $("password").value = "";
+            setStatus(`Account created. We've sent a link to ${email}: open it, then sign in.`);
+        }
+
+        // Firebase keeps the picture from the user's first Google sign-in. Google sends the current one every
+        // time, so copy it over; the fresh token then carries it to the server, which saves it in their record.
+        async function useCurrentGooglePicture(result) {
+            const picture = getAdditionalUserInfo(result)?.profile?.picture;
+            if (!picture || picture === result.user.photoURL) return;
+            try {
+                await updateProfile(result.user, { photoURL: picture });
+                await result.user.getIdToken(true);
+            } catch { /* keep the old picture rather than fail the sign-in */ }
+        }
+
+        $("google").addEventListener("click", () => run(async () => {
+            setStatus("Waiting for Google…");
+            const result = await signInWithPopup(auth, new GoogleAuthProvider());
+            await useCurrentGooglePicture(result);
+            await finishSignIn(result.user);
+        }));
+
+        $("email-form").addEventListener("submit", (event) => {
+            event.preventDefault();
+            run(creating ? createAccount : signInWithPassword);
+        });
+
+        $("forgot").addEventListener("click", () => run(async () => {
+            const email = $("email").value.trim();
+            if (!email) {
+                setStatus("Enter your email above first.", true);
+                $("email").focus();
+                return;
+            }
+            await sendPasswordResetEmail(auth, email);
+            // Same message whether or not the account exists, so this can't be used to find out
+            setStatus(`If there's an account for ${email}, we've sent it a link to reset the password.`);
+        }));
+
+        $("switch").addEventListener("click", () => setMode(!creating));
+
+        $("continue").addEventListener("click", () => location.replace(next));
+
+        $("signout").addEventListener("click", async () => {
+            await fetch("/logout", { method: "POST" });
+            showSignedOut();
+            setStatus("Signed out.");
+        });
+    </script>
+</body>
+</html>

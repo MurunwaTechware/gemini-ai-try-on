@@ -21,21 +21,81 @@ MODEL = os.getenv("GEMINI_IMAGE_MODEL", "gemini-3.1-flash-image")
 MEASURE_MODEL = os.getenv("GEMINI_MEASURE_MODEL", "gemini-2.5-pro")
 
 MAX_IMAGE_BYTES = 7 * 1024 * 1024        # inline-data limit per image
+MAX_RESULT_BYTES = 20 * 1024 * 1024      # a generated result being saved: never sent to Gemini, can be bigger
 # Inline requests cap out around 20 MB and base64 adds ~33%, so keep the raw total under ~14 MB
 MAX_TOTAL_BYTES = 14 * 1024 * 1024
 MAX_OUTPUTS = 4                          # the repo fired 10; 4 is plenty for a demo
 ALLOWED_MIME = {"image/jpeg", "image/png", "image/webp"}
 GARMENT_SLOTS = ("top", "bottom", "headwear", "eyewear")   # order they are sent to the model
 
+# Where uploads and results are kept (storage.py):
+#   "local": a folder, RUNS_DIR. With a queue, the web server and workers must share it (Docker Compose mounts it)
+#   "gcs":   the Cloud Storage bucket RESULTS_BUCKET, so the web server and workers can run on different machines
+STORAGE_BACKEND = os.getenv("STORAGE_BACKEND", "local")
+if STORAGE_BACKEND not in ("local", "gcs"):
+    raise RuntimeError(f"STORAGE_BACKEND must be 'local' or 'gcs', not {STORAGE_BACKEND!r}.")
 RUNS_DIR = Path(os.getenv("RUNS_DIR", Path(__file__).parent / "results"))
+RESULTS_BUCKET = os.getenv("RESULTS_BUCKET")   # Terraform output results_bucket
+if STORAGE_BACKEND == "gcs" and not RESULTS_BUCKET:
+    raise RuntimeError("STORAGE_BACKEND=gcs needs RESULTS_BUCKET (the bucket's name) in .env.")
 
 # Where measurement jobs run:
 #   "inprocess": a background task inside the web server; nothing else to run
-#   "rabbitmq":  the web server publishes jobs to RabbitMQ and `python worker.py` runs them
+#   "rabbitmq":  the web server publishes jobs to RabbitMQ and `python worker.py` runs them (local Docker)
+#   "pubsub":    the same through Google Pub/Sub, for the cloud (infra/terraform/pubsub.tf)
 QUEUE_BACKEND = os.getenv("QUEUE_BACKEND", "inprocess")
-if QUEUE_BACKEND not in ("inprocess", "rabbitmq"):
-    raise RuntimeError(f"QUEUE_BACKEND must be 'inprocess' or 'rabbitmq', not {QUEUE_BACKEND!r}.")
+if QUEUE_BACKEND not in ("inprocess", "rabbitmq", "pubsub"):
+    raise RuntimeError(f"QUEUE_BACKEND must be 'inprocess', 'rabbitmq' or 'pubsub', not {QUEUE_BACKEND!r}.")
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
+
+
+def _pubsub_path(kind: str, name: str) -> str:
+    """A topic or subscription name, or its full path as Terraform prints it (projects/<project>/topics/<name>)."""
+    if name.startswith("projects/"):
+        return name
+    if not PROJECT_ID:
+        raise RuntimeError("QUEUE_BACKEND=pubsub needs GOOGLE_CLOUD_PROJECT, or full paths in PUBSUB_TOPIC and "
+                           "PUBSUB_SUBSCRIPTION.")
+    return f"projects/{PROJECT_ID}/{kind}/{name}"
+
+
+# Pub/Sub only. The defaults are the names Terraform creates (with its default name_prefix, "tryon")
+PUBSUB_TOPIC = os.getenv("PUBSUB_TOPIC", "tryon-measure-jobs")   # the web server publishes jobs here
+PUBSUB_SUBSCRIPTION = os.getenv("PUBSUB_SUBSCRIPTION", "tryon-measure-jobs-workers")   # workers pull from here
+if QUEUE_BACKEND == "pubsub":
+    PUBSUB_TOPIC = _pubsub_path("topics", PUBSUB_TOPIC)
+    PUBSUB_SUBSCRIPTION = _pubsub_path("subscriptions", PUBSUB_SUBSCRIPTION)
 # Jobs one worker runs at once. Each job is ~30 s of waiting on Gemini, so this can be above 1;
 # keep (workers x this) within the project's Gemini quota or the extra calls fail with 429s.
 WORKER_CONCURRENCY = int(os.getenv("WORKER_CONCURRENCY", "4"))
+
+# Sign-in on or off. Off (AUTH_ENABLED=false in .env) is for local development and demos: there's no
+# Google sign-in, user records stay in memory, and every request is the demo user, whose
+# files go in results/<DEMO_USER_ID>/. On unless .env says otherwise, so a missing setting can't
+# quietly switch sign-in off on a real server.
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() != "false"
+DEMO_USER_ID = "demo-user"   # the same ID as the frontend's mock user
+
+# Sign-in (Firebase Authentication, "Continue with Google"). The web config values below are public
+# by design: they only identify the Firebase project to the browser and grant no access by themselves.
+FIREBASE_API_KEY = os.getenv("FIREBASE_API_KEY")
+FIREBASE_PROJECT_ID = os.getenv("FIREBASE_PROJECT_ID", PROJECT_ID)
+FIREBASE_AUTH_DOMAIN = os.getenv("FIREBASE_AUTH_DOMAIN", f"{FIREBASE_PROJECT_ID}.firebaseapp.com")
+
+# Job status records in Firestore (job_status.py): how the upload page hears that its measurement has
+# moved on or finished, from whichever worker ran it. Used with sign-in on or off. If Firestore can't be
+# reached, the page still finds the result by checking the job folder, a few seconds later.
+JOB_STATUS_ENABLED = os.getenv("JOB_STATUS_ENABLED", "true").lower() != "false" and bool(FIREBASE_PROJECT_ID)
+# Who may sign in: email addresses and whole domains (written "@techware.tech"), separated by commas. Checked at
+# sign-in and on every request, so removing someone takes effect at once. Empty: anyone with a Google account
+# or a verified email address can sign in (and use the project's Gemini quota).
+ALLOWED_EMAILS = {e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip()}
+# Sites besides this server's own address whose pages may send uploads, sign-ins and other changes here, e.g.
+# the frontend's address when its server forwards requests to this one (Cloud Run, no shared domain).
+# Comma-separated origins: https://tryon-frontend-xxxx.run.app
+TRUSTED_ORIGINS = {o.strip().rstrip("/").lower() for o in os.getenv("TRUSTED_ORIGINS", "").split(",") if o.strip()}
+# How long a sign-in lasts. Firebase allows 5 minutes to 14 days.
+SESSION_DAYS = int(os.getenv("SESSION_DAYS", "5"))
+# Session cookie is HTTPS-only. Chrome, Edge and Firefox treat http://localhost as secure, so this can
+# stay on locally; set to false only for a browser that doesn't (e.g. Safari) or a plain-HTTP host.
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() != "false"
