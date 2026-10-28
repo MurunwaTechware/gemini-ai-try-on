@@ -90,6 +90,10 @@ JOB_STATUS_ENABLED = os.getenv("JOB_STATUS_ENABLED", "true").lower() != "false" 
 # sign-in and on every request, so removing someone takes effect at once. Empty: anyone with a Google account
 # or a verified email address can sign in (and use the project's Gemini quota).
 ALLOWED_EMAILS = {e.strip().lower() for e in os.getenv("ALLOWED_EMAILS", "").split(",") if e.strip()}
+# Sites besides this server's own address whose pages may send uploads, sign-ins and other changes here, e.g.
+# the frontend's address when its server forwards requests to this one (Cloud Run, no shared domain).
+# Comma-separated origins: https://tryon-frontend-xxxx.run.app
+TRUSTED_ORIGINS = {o.strip().rstrip("/").lower() for o in os.getenv("TRUSTED_ORIGINS", "").split(",") if o.strip()}
 # How long a sign-in lasts. Firebase allows 5 minutes to 14 days.
 SESSION_DAYS = int(os.getenv("SESSION_DAYS", "5"))
 # Session cookie is HTTPS-only. Chrome, Edge and Firefox treat http://localhost as secure, so this can

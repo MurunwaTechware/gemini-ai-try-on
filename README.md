@@ -52,6 +52,7 @@ Settings are read from `.env`. Only the first two are required, and only the fir
 | `GOOGLE_CLOUD_PROJECT` | (required) | Google Cloud project that runs and pays for the Gemini calls |
 | `FIREBASE_API_KEY` | (required) | Firebase web API key for sign-in. Public by design, but keep it in `.env` with the rest. Not needed with `AUTH_ENABLED=false` |
 | `AUTH_ENABLED` | `true` | `false` turns sign-in off for local development: everyone is the demo user. See [Sign-in](#sign-in) |
+| `TRUSTED_ORIGINS` | (empty) | Deployed only: the frontend's address (e.g. `https://tryon-frontend-….run.app`) when its server forwards requests here. Without it, uploads and sign-in through the frontend are refused with "Request blocked" |
 | `ALLOWED_EMAILS` | (empty: anyone) | Who may sign in: addresses and whole domains, comma-separated, e.g. `@techware.tech,someone@gmail.com`. Checked on every request, so removing someone signs them out at once |
 | `FIREBASE_PROJECT_ID` | `GOOGLE_CLOUD_PROJECT` | Firebase project, if it's a different one |
 | `FIREBASE_AUTH_DOMAIN` | `<project>.firebaseapp.com` | Where Google's sign-in window comes from |

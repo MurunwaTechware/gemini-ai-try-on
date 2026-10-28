@@ -138,10 +138,14 @@ def page_user(request: Request) -> User:
 def same_origin(request: Request) -> None:
     """CSRF guard for routes that change something. The cookie is sent automatically, so without this
     another site could make a signed-in browser POST here. SameSite=Lax blocks most of that; checking
-    Origin closes the rest. Browsers always send Origin on POST."""
+    Origin closes the rest. Browsers always send Origin on POST, and pages can't change it.
+    Allowed: this server's own address, or one of TRUSTED_ORIGINS (the frontend, when its server forwards
+    requests here: those arrive with the frontend's Origin but this server's Host)."""
     origin = request.headers.get("origin")
-    if not origin or urlsplit(origin).netloc != request.headers.get("host"):
-        raise HTTPException(403, "Request blocked: it didn't come from this site.")
+    if origin and (urlsplit(origin).netloc == request.headers.get("host")
+                   or origin.rstrip("/").lower() in config.TRUSTED_ORIGINS):
+        return
+    raise HTTPException(403, "Request blocked: it didn't come from this site.")
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
