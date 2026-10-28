@@ -78,9 +78,20 @@ ON CONFLICT (id) DO UPDATE SET
     colour      = EXCLUDED.colour,
     url         = EXCLUDED.url,
     images      = EXCLUDED.images,
+    active      = TRUE,          -- a product we saw again is live again
     last_synced = now();
 """
 VALUES_TEMPLATE = "(" + ",".join(["%s"] * 13) + ", now())"
+
+# After a healthy sync, hide products Superbalist no longer lists (not seen in
+# STALE_DAYS). We HIDE (active=false), never delete — so it's reversible and a
+# bad sync can't wipe real data.
+STALE_DAYS = 7
+
+# Safety rail: only run the stale sweep if this run upserted at least this many
+# products. A run that saw almost nothing (network trouble, site change) must
+# NOT be allowed to hide the whole catalogue.
+MIN_HEALTHY_UPSERTS = 2000
 
 
 # ---------------------------------------------------------------------------
@@ -153,6 +164,28 @@ def upsert(conn, rows):
         execute_values(cur, UPSERT_SQL, rows, template=VALUES_TEMPLATE, page_size=200)
 
 
+def sweep_stale(conn, total_written):
+    """Hide products not seen in STALE_DAYS — but only after a HEALTHY run, so a
+    failed/partial sync can never hide the whole catalogue. Reversible: these
+    rows stay in the table with active=false and come back if the product
+    reappears in a later sync."""
+    if total_written < MIN_HEALTHY_UPSERTS:
+        print(f"\nSkipping stale sweep: only {total_written} products upserted "
+              f"(need ≥ {MIN_HEALTHY_UPSERTS}). Catalogue left untouched.")
+        return
+    with conn, conn.cursor() as cur:
+        cur.execute(
+            "UPDATE products SET active = FALSE "
+            "WHERE active = TRUE AND last_synced < now() - %s::interval;",
+            (f"{STALE_DAYS} days",),
+        )
+        hidden = cur.rowcount
+        cur.execute("SELECT count(*) FILTER (WHERE active), count(*) FROM products;")
+        active, total = cur.fetchone()
+    print(f"\nStale sweep: hid {hidden} product(s) not seen in {STALE_DAYS} days. "
+          f"Now {active} active of {total} total.")
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -170,6 +203,9 @@ def main():
                 upsert(conn, [row_tuple(e) for e in entries])
                 total_written += len(entries)
                 print(f"    saved {len(entries)}")
+
+        # Hide anything Superbalist dropped (guarded against a bad run).
+        sweep_stale(conn, total_written)
 
         with conn.cursor() as cur:
             cur.execute("SELECT count(*) FROM products;")

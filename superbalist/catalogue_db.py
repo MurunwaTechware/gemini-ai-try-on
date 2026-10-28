@@ -104,7 +104,9 @@ def _where(gender=None, category=None, subcategory=None, brand=None,
            colour=None, min_price=None, max_price=None, q=None):
     """Build one WHERE clause shared by browse() and count(), so the page and
     its total can never disagree."""
-    where, params = [], []
+    # Only ever show live products. Stale ones (hidden by the sync) stay in the
+    # table but never reach the app.
+    where, params = ["active = TRUE"], []
 
     if gender:
         where.append("gender = %s"); params.append(gender)
@@ -170,6 +172,8 @@ def search(term, gender=None, page=1, page_size=PAGE_SIZE):
 # Single product (the product page's base row)
 # ---------------------------------------------------------------------------
 def get_product(product_id):
+    # Product pages may still open a hidden product by direct link (e.g. a
+    # wishlist item), so we don't filter active here — the grids already do.
     rows = _run("SELECT * FROM products WHERE id = %s;", [product_id])
     return rows[0] if rows else None
 
@@ -179,16 +183,16 @@ def get_product(product_id):
 # ---------------------------------------------------------------------------
 def distinct_brands(gender=None):
     if gender:
-        rows = _run("SELECT DISTINCT brand FROM products WHERE gender = %s AND brand IS NOT NULL ORDER BY brand;", [gender])
+        rows = _run("SELECT DISTINCT brand FROM products WHERE active = TRUE AND gender = %s AND brand IS NOT NULL ORDER BY brand;", [gender])
     else:
-        rows = _run("SELECT DISTINCT brand FROM products WHERE brand IS NOT NULL ORDER BY brand;")
+        rows = _run("SELECT DISTINCT brand FROM products WHERE active = TRUE AND brand IS NOT NULL ORDER BY brand;")
     return [r["brand"] for r in rows]
 
 
 def distinct_categories(gender=None, brand=None):
     """Categories that actually have products in this scope — so a brand page
     only offers categories that brand sells."""
-    where, params = ["category IS NOT NULL"], []
+    where, params = ["active = TRUE", "category IS NOT NULL"], []
     if gender:
         where.append("gender = %s"); params.append(gender)
     if brand:
@@ -207,13 +211,13 @@ def brand_cards(gender=None):
         FROM (
             SELECT brand, count(*) AS n
             FROM products
-            WHERE brand IS NOT NULL {gender_sql}
+            WHERE active = TRUE AND brand IS NOT NULL {gender_sql}
             GROUP BY brand
         ) b
         LEFT JOIN LATERAL (
             SELECT COALESCE(images->0->>'full', images->0->>'thumb') AS img
             FROM products p
-            WHERE p.brand = b.brand {gender_sql.replace('gender', 'p.gender')}
+            WHERE p.active = TRUE AND p.brand = b.brand {gender_sql.replace('gender', 'p.gender')}
               AND jsonb_typeof(p.images) = 'array'
               AND jsonb_array_length(p.images) > 0
             ORDER BY p.last_synced DESC

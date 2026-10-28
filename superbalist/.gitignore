@@ -1,0 +1,10 @@
+
+db_url.txt
+sync_logs/
+__pycache__/
+*.pyc
+
+db_url.txt
+sync_logs/
+__pycache__/
+*.pyc
