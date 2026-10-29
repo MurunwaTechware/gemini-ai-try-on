@@ -285,6 +285,13 @@ Everything is set up by Terraform (`infra/terraform`), run from your own machine
 
 Each runs as its own service account with only the roles it needs (`service_accounts.tf`). The first deployment goes in this order, because the services need images before they can be created.
 
+**Terraform's state** (its record of what it created) is kept in its own bucket, `project-d045636a-95f8-4566-932-tfstate` (`versions.tf`), so everyone who runs Terraform shares one copy, with locking while someone's applying and versioning to roll back a bad one. It's separate from the results bucket, since the app's accounts can read and write that one, and the state holds settings like the Firebase key. The bucket was made by hand once, because Terraform can't create the bucket that holds its own state:
+```
+gcloud storage buckets create gs://project-d045636a-95f8-4566-932-tfstate --project=project-d045636a-95f8-4566-932 --location=africa-south1 --uniform-bucket-level-access --public-access-prevention
+gcloud storage buckets update gs://project-d045636a-95f8-4566-932-tfstate --versioning
+```
+Project Owners can use it as is. Anyone else who runs Terraform needs `roles/storage.objectAdmin` on that bucket, as well as permission for whatever Terraform changes. After cloning, `terraform init` connects to it; there's no local `terraform.tfstate` to keep or copy.
+
 **1. Create the registry, service accounts, secret and CI identity.** With `deploy_services` left `false` in `terraform.tfvars`:
 ```
 cd infra/terraform
