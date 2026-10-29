@@ -201,7 +201,7 @@ Browser ◄──status, ready (SSE)── web server ◄──listens── Fir
 - `job_queue.py` defines a small `JobQueue` interface: publish a job, consume jobs. `QUEUE_BACKEND` picks RabbitMQ (local Docker) or Google Pub/Sub (the cloud). Both give each job to exactly one worker.
 - With Pub/Sub, the web server publishes to the `tryon-measure-jobs` topic and workers pull from the `tryon-measure-jobs-workers` subscription (`infra/terraform/pubsub.tf`). A job is acknowledged when it finishes. If the worker's handler fails, the job is handed back and retried with a growing delay; after 5 attempts it moves to the dead-letter queue, and an alert opens. If a worker dies mid-job, another worker gets it.
 
-Each user has a folder holding their measurement profiles (one per upload) and the try-ons they saved:
+Each user has a folder holding their measurement profiles (one per upload), the try-ons they saved, and their try-on photos:
 
 ```
 results/<user ID>/
@@ -211,13 +211,18 @@ results/<user ID>/
 │       ├── inputs.json                height, weight, gender, age
 │       ├── measurement.json           measurements in cm, body shape, warnings
 │       └── error.json                 only if measuring failed
-└── saved_tryons/
-    └── <YYYYMMDD-HHMMSS-xxxxxx>/      one folder per save; the name is when it was saved
-        ├── result.*                   the result the user picked
-        ├── person.*, top.*, …         the photos it was made from
-        ├── prompt.txt                 the exact prompt that produced it
-        └── meta.json                  which measurement profile it came from (null if none), model
+├── saved_tryons/
+│   └── <YYYYMMDD-HHMMSS-xxxxxx>/      one folder per save; the name is when it was saved
+│       ├── result.*                   the result the user picked
+│       ├── person.*, top.*, …         the photos it was made from
+│       ├── prompt.txt                 the exact prompt that produced it
+│       └── meta.json                  which measurement profile it came from (null if none), model
+└── tryon_photos/
+    ├── full_body-<YYYYMMDD-HHMMSS-xxxxxx>.*   the person photos try-ons start with (twin page);
+    └── close_up-<YYYYMMDD-HHMMSS-xxxxxx>.*    only the current one of each is kept
 ```
+
+**Try-on photos** (`tryon_photos.py`): `GET /me/tryon-photos` gives the user's full body and close-up photo, `PUT /me/tryon-photos/{full_body|close_up}` replaces one, `DELETE` removes it. Each user only ever sees and changes their own. Each replacement gets a new file name, since browsers keep these photos for a day. Without an upload, the full body photo is the front photo of their latest finished scan; anything still missing gets the frontend's sample photo.
 
 Generating a try-on keeps nothing: the results go to the page only. **Save to my account** sends the chosen result back with the photos and rules it was made from, and the server writes the folder. The server rebuilds the prompt from the same rules, so `prompt.txt` matches what produced the result.
 

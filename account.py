@@ -1,5 +1,6 @@
 """The account page and the signed-in user's own data: their details and sign-in methods, their
-measurement profiles and try-on results, and a download of everything the app keeps about them.
+measurement profiles and try-on results, and a download of everything the app keeps about them
+(their try-on photos have their own routes, in tryon_photos.py).
 
 Every route works on the user from the session cookie only. Folders are looked up under that user's
 own folder, so someone else's job or run ID gives 404, the same as one that doesn't exist.
@@ -19,6 +20,7 @@ from pydantic import BaseModel
 import config
 import jobs
 import prompts
+import tryon_photos
 import user_store
 from auth import User, current_user, page_user, same_origin
 from models.Entities.Users import User as UserRecord   # the stored record; auth.User is only who's signed in
@@ -224,5 +226,6 @@ def export(user: User = Depends(current_user)):
         "sign_in_methods": sign_in_methods(user),
         "measurement_profiles": profiles,
         "saved_tryons": saved,
+        "tryon_photos": tryon_photos.current(user),
     }
     return JSONResponse(data, headers={"Content-Disposition": 'attachment; filename="mannequin-ai-my-information.json"'})
