@@ -2,11 +2,12 @@
 
 The rest of the app works with paths under storage.ROOT and doesn't care which. ROOT is a pathlib.Path for
 the local folder, or a BucketPath for the bucket. BucketPath does just the pathlib operations this app uses
-(/, name, exists, is_file, is_dir, iterdir, glob("stem.*"), read/write text and bytes, mkdir), so the same
-code reads and writes either, and the layout is the same in both:
+(/, name, exists, is_file, is_dir, iterdir, glob("stem.*"), read/write text and bytes, mkdir, unlink), so the
+same code reads and writes either, and the layout is the same in both:
 
     <user ID>/measurement_profiles/<job ID>/front.jpg ...
     <user ID>/saved_tryons/<saved ID>/result.png ...
+    <user ID>/tryon_photos/full_body-<time>-<random>.jpg ...
 
 A bucket has no real folders: ".../<job ID>/front.jpg" is one object whose name contains slashes. A folder
 "exists" while any object's name starts with it, and mkdir does nothing.
@@ -131,6 +132,14 @@ class BucketPath:
 
     def mkdir(self, parents: bool = False, exist_ok: bool = False) -> None:
         """Nothing to do: a bucket "folder" exists once something is saved in it."""
+
+    def unlink(self, missing_ok: bool = False) -> None:
+        from google.api_core.exceptions import NotFound
+        try:
+            _get_bucket().blob(self._key).delete()
+        except NotFound:
+            if not missing_ok:
+                raise FileNotFoundError(f"No such object: {self}") from None
 
 
 StoredPath = Path | BucketPath

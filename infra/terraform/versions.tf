@@ -13,12 +13,14 @@ terraform {
     }
   }
 
-  # State is local for now (infra/terraform/terraform.tfstate, git-ignored). Before more than one
-  # person runs Terraform, move it to a Cloud Storage bucket so everyone shares the same state:
-  # backend "gcs" {
-  #   bucket = "<state bucket name>"
-  #   prefix = "tryon"
-  # }
+  # State lives in its own Cloud Storage bucket, so everyone running Terraform shares one copy (with
+  # locking, and versioning to roll back a bad one). The bucket was made by hand, once, outside Terraform
+  # (see README); it's separate from the results bucket, which the app's accounts can read and write.
+  # Variables can't be used here, so the name is written out.
+  backend "gcs" {
+    bucket = "project-d045636a-95f8-4566-932-tfstate"
+    prefix = "tryon"
+  }
 }
 
 provider "google" {
