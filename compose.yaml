@@ -75,14 +75,11 @@ services:
     image: gcr.io/cloud-sql-connectors/cloud-sql-proxy:2
     profiles: ["products"]
     restart: unless-stopped
-    # DB_PROXY_PORT (default 5432) if something else on this computer already uses 5432, such as a local
-    # PostgreSQL. The proxy listens on the same port inside Docker as outside, so DATABASE_URL's port
-    # (set it to match) works for both the products API here and the sync script run outside Docker.
-    command: ["--address", "0.0.0.0", "--port", "${DB_PROXY_PORT:-5432}", "--credentials-file", "/gcloud/adc.json",
+    command: ["--address", "0.0.0.0", "--port", "5432", "--credentials-file", "/gcloud/adc.json",
               "${CLOUD_SQL_INSTANCE:-}"]   # the instance's connection name, e.g. project:region:instance
     ports:
       # The database, for psql or the sync script run outside Docker. Only this computer can connect.
-      - "127.0.0.1:${DB_PROXY_PORT:-5432}:${DB_PROXY_PORT:-5432}"
+      - "127.0.0.1:5432:5432"
     volumes:
       - ${GCLOUD_ADC:-${APPDATA:-~/.config}/gcloud/application_default_credentials.json}:/gcloud/adc.json:ro
 
