@@ -224,6 +224,8 @@ results/<user ID>/
 
 **Try-on photos** (`tryon_photos.py`): `GET /me/tryon-photos` gives the user's full body and close-up photo, `PUT /me/tryon-photos/{full_body|close_up}` replaces one, `DELETE` removes it. Each user only ever sees and changes their own. Each replacement gets a new file name, since browsers keep these photos for a day. Without an upload, the full body photo is the front photo of their latest finished scan; anything still missing gets the frontend's sample photo.
 
+**Body profile** (`body_profile.py`): the onboarding questionnaire's answers (sex, body type, height, weight, jeans or dress size, bra size) and the starting measurements worked out from them, one Firestore document per user (`body_profiles/<user ID>`; in memory with sign-in off). `GET /me/body-profile` reads it, `PUT` replaces it, so redoing the questionnaire starts clean. Each measurement records its source (`questionnaire`, `scan` or `manual`) and, for clothing sizes, a range, so better sources can take over later.
+
 Generating a try-on keeps nothing: the results go to the page only. **Save to my account** sends the chosen result back with the photos and rules it was made from, and the server writes the folder. The server rebuilds the prompt from the same rules, so `prompt.txt` matches what produced the result.
 
 Folders from before sign-in (directly under `results/`) and from before this layout (`results/<user ID>/<job ID>/`, `measurement-profiles/`, `try-ons/`) aren't picked up by the app.

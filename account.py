@@ -17,6 +17,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from firebase_admin import auth as fb_auth
 from pydantic import BaseModel
 
+import body_profile
 import config
 import jobs
 import prompts
@@ -227,5 +228,6 @@ def export(user: User = Depends(current_user)):
         "measurement_profiles": profiles,
         "saved_tryons": saved,
         "tryon_photos": tryon_photos.current(user),
+        "body_profile": body_profile.get(user.uid),
     }
     return JSONResponse(data, headers={"Content-Disposition": 'attachment; filename="mannequin-ai-my-information.json"'})

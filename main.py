@@ -3,7 +3,8 @@
 Pages:  /login  ->  /  (upload + details)  ->  /measurements?job=ID  ->  /tryon?job=ID
 API:    POST /process_upload, GET /job_events/{id} (SSE), GET /measurements_data/{id},
         GET /defaults, POST /try-on, POST /try-on/save; sign-in routes are in auth.py, /account and /me... in account.py,
-        the user's try-on photos (/me/tryon-photos...) in tryon_photos.py
+        the user's try-on photos (/me/tryon-photos...) in tryon_photos.py, the onboarding questionnaire's
+        body profile (/me/body-profile) in body_profile.py
 Everything except the sign-in routes and /static needs a signed-in user (auth.py). Each upload is a "job" with its own
 folder, <user ID>/measurement_profiles/<job ID>. Generating a try-on keeps nothing; one the user saves goes in
 <user ID>/saved_tryons/<ID>. Both are under storage.ROOT: a local folder or the Cloud Storage bucket (storage.py),
@@ -26,6 +27,7 @@ from fastapi.staticfiles import StaticFiles
 
 import account
 import auth
+import body_profile
 import config
 import gemini_client
 import job_status
@@ -80,6 +82,7 @@ app = FastAPI(title="Gemini try-on demo", lifespan=lifespan)
 app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(tryon_photos.router)
+app.include_router(body_profile.router)
 
 
 @app.middleware("http")
