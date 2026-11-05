@@ -6,11 +6,13 @@ browsers never read Firestore directly). With sign-in off it's kept in memory in
 user's record. Saving again (redoing the questionnaire) replaces the whole profile.
 
 Every measurement says where it came from, so better sources can take over later without guessing:
+    "base"           the chosen base body's own measurement (its mesh, scaled to the user's height)
     "questionnaire"  worked out from a clothing size; a range, since sizes differ between brands
     "scan"           estimated from the user's photos
     "manual"         typed in by the user, e.g. from a tape measure; trusted most
-The frontend does the size conversions (lib/body-sizes.ts), so it can show them as the user answers;
-this checks that what arrives is in a believable range and stores it.
+The frontend does the size conversions (lib/body-sizes.ts) and holds the base bodies' measurements
+(lib/base-bodies.json), so it can show them as the user answers; this checks that what arrives is in a
+believable range and stores it.
 """
 import logging
 from datetime import datetime, timezone
@@ -39,6 +41,19 @@ LIMITS = {
     "hip": (50, 220),
     "bust": (50, 200),
     "underbust": (45, 180),
+    "inside_leg": (40, 120),
+    # The rest of the mesh viewer's measurements (SMPL-Anthropometry's), from the base body unless entered
+    "head": (40, 70),
+    "neck": (20, 70),
+    "shoulder_breadth": (20, 70),
+    "arm_length": (30, 100),
+    "bicep": (12, 70),
+    "forearm": (12, 60),
+    "wrist": (8, 35),
+    "shoulder_to_crotch": (30, 100),
+    "thigh": (25, 110),
+    "calf": (15, 75),
+    "ankle": (10, 45),
 }
 # UK/SA letters (with an inch band, e.g. 34DD) and EU letters (with a cm band, e.g. 75E) together
 CUPS = ("AA", "A", "B", "C", "D", "DD", "E", "F", "FF", "G", "GG", "H", "HH", "I", "J")
@@ -48,7 +63,7 @@ class Measurement(BaseModel):
     value: float                       # cm; the best single number
     min: float | None = None           # cm; a range when it came from a clothing size
     max: float | None = None
-    source: Literal["questionnaire", "scan", "manual"]
+    source: Literal["base", "questionnaire", "scan", "manual"]
 
     @model_validator(mode="after")
     def _range(self):
