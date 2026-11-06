@@ -25,6 +25,7 @@ from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 
+import about_you
 import account
 import auth
 import body_profile
@@ -83,6 +84,7 @@ app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(tryon_photos.router)
 app.include_router(body_profile.router)
+app.include_router(about_you.router)
 
 
 @app.middleware("http")

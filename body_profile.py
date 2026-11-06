@@ -1,9 +1,10 @@
-"""The user's body profile: the onboarding questionnaire's answers and the starting measurements worked
-out from them. It's the base for the user's mesh, before any scan.
+"""The user's body profile: their twin's base body and measurements, from the body questionnaire or a
+scan, plus anything they typed in on the twin page's editor. It's what the user's mesh is made from.
 
 One Firestore document per user, body_profiles/<UID>, written through the Admin SDK (like user_store.py;
 browsers never read Firestore directly). With sign-in off it's kept in memory instead, like the demo
-user's record. Saving again (redoing the questionnaire) replaces the whole profile.
+user's record. Saving again (the questionnaire, a new scan, the editor) replaces the whole profile; the
+app carries over what the user typed in themselves.
 
 Every measurement says where it came from, so better sources can take over later without guessing:
     "base"           the chosen base body's own measurement (its mesh, scaled to the user's height)
@@ -23,6 +24,7 @@ from firebase_admin import firestore
 from pydantic import BaseModel, Field, field_validator, model_validator
 
 import config
+import jobs
 from auth import User, current_user, same_origin
 
 log = logging.getLogger(__name__)
@@ -54,6 +56,12 @@ LIMITS = {
     "thigh": (25, 110),
     "calf": (15, 75),
     "ankle": (10, 45),
+    # The scan's lengths (gemini_client.Measurements), also Anny's own length controls
+    "upper_arm_length": (15, 50),
+    "lower_arm_length": (15, 45),
+    "upper_leg_length": (25, 70),
+    "lower_leg_length": (25, 65),
+    "nape_to_waist": (25, 65),
 }
 # UK/SA letters (with an inch band, e.g. 34DD) and EU letters (with a cm band, e.g. 75E) together
 CUPS = ("AA", "A", "B", "C", "D", "DD", "E", "F", "FF", "G", "GG", "H", "HH", "I", "J")
@@ -101,6 +109,14 @@ class BodyProfileIn(BaseModel):
     waist: WaistAnswer | None = None                # None: skipped
     bra: BraAnswer | None = None                    # None: skipped or not relevant
     measurements: dict[str, Measurement]            # at least height; keys from LIMITS
+    scan_job: str | None = None                     # the scan the measurements came from, if any
+
+    @field_validator("scan_job")
+    @classmethod
+    def _scan_job(cls, v: str | None) -> str | None:
+        if v is not None and not jobs.JOB_ID.fullmatch(v):
+            raise ValueError("scan_job must be a scan's job ID")
+        return v
 
     @field_validator("measurements")
     @classmethod
@@ -149,7 +165,7 @@ def body_profile(user: User = Depends(current_user)):
 
 @router.put("/me/body-profile", dependencies=[Depends(same_origin)])
 def save_body_profile(body: BodyProfileIn, user: User = Depends(current_user)):
-    """Save the questionnaire. Doing it again replaces the previous answers."""
+    """Save the user's body profile, replacing the previous one."""
     try:
         return {"profile": save(user.uid, body)}
     except Exception:   # Firestore unreachable or refusing: say so plainly rather than a bare 500
