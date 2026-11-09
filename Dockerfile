@@ -29,13 +29,33 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 
-# Dependencies first, so code changes don't reinstall them on every build
+# System libraries for the pose check (MediaPipe). MediaPipe sets up an OpenGL ES
+# context even when it runs on the CPU, so it needs the EGL/GLES libraries, and
+# OpenCV needs libxcb — a -slim image has none of them. Without these the pose
+# check fails to load and, because it is built to fail open, every photo would
+# sail through unchecked. libgomp1 is OpenMP, which TensorFlow Lite uses.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libegl1 libgles2 libgl1 libglib2.0-0 libgomp1 libxcb1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# Dependencies first, so code changes don't reinstall them on every build.
+# MediaPipe depends on opencv-contrib-python, the desktop build, which wants the
+# whole X11 stack. We swap it for the headless build afterwards: same cv2 module,
+# no X11, a much smaller image. MediaPipe only ever does `import cv2`, so it
+# cannot tell the difference.
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -r requirements.txt \
+ && pip uninstall -y opencv-contrib-python opencv-python \
+ && pip install --no-cache-dir --force-reinstall --no-deps opencv-python-headless
 
 COPY *.py ./
 COPY models ./models
 COPY static ./static
+
+# Bake the pose model into the image rather than downloading it on first use —
+# no network call on the first scan after a deploy, and no failure if the
+# container cannot reach Google.
+ENV POSE_MODEL_PATH=/app/models/pose_landmarker_lite.task
 
 # Run as a normal user, not root. UID 1000 matches the usual first user on Linux hosts,
 # so results written to the mounted folder stay editable there.

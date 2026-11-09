@@ -124,6 +124,48 @@ class MeasurementError(Exception):
     """Carries a message that is safe to show on the page."""
 
 
+# ── Same-person check ─────────────────────────────────────────────────────────
+# A fast, cheap pre-check run at UPLOAD time (before the heavy measurement job is
+# queued), so that three photos of different people are caught while the user is
+# still on the input page — not after they've been sent to the measurements page.
+# Deliberately a separate, lightweight call: it only answers "same person?".
+
+class SamePersonResult(BaseModel):
+    same_person: bool = Field(description="True only if ALL the photos clearly show the same one person")
+    reason: str = Field(description="One short sentence. If not the same person, say which photo differs.")
+
+
+async def check_same_person(photos: dict[str, InputImage]) -> SamePersonResult:
+    """Ask Gemini whether all three photos are the same person. Fails OPEN: if the
+    call errors or returns nothing usable, returns same_person=True so a model
+    hiccup never blocks a legitimate upload (the worker's warning is the backstop)."""
+    contents = []
+    for view in prompts.MEASURE_VIEWS:
+        p = photos[view]
+        contents += [prompts.MEASURE_VIEW_LABELS[view], types.Part.from_bytes(data=p.data, mime_type=p.mime_type)]
+    contents.append(
+        "These three photos are meant to be the SAME person photographed from the front, "
+        "left side, and right side, for body measurement. Looking at build, face, hair, "
+        "skin tone and clothing, decide whether every photo clearly shows the same single "
+        "person. Different clothing alone is fine if the body and face match. If any photo "
+        "shows a different person, set same_person to false and say which one."
+    )
+    try:
+        response = await _client.aio.models.generate_content(
+            model=config.MEASURE_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(response_mime_type="application/json",
+                                               response_schema=SamePersonResult,
+                                               automatic_function_calling=_NO_AFC),
+        )
+    except Exception:   # never block a real upload on a model/network hiccup
+        return SamePersonResult(same_person=True, reason="check skipped")
+
+    if isinstance(response.parsed, SamePersonResult):
+        return response.parsed
+    return SamePersonResult(same_person=True, reason="check inconclusive")   # fail open
+
+
 async def estimate_measurements(photos: dict[str, InputImage], height_cm: float, weight_kg: float,
                                 gender: str, age: int) -> MeasurementReport:
     """photos: {"front": ..., "left": ..., "right": ...}"""

@@ -8,3 +8,6 @@ pydantic==2.13.4
 firebase-admin==7.7.0
 google-cloud-storage==3.17.1
 google-cloud-pubsub==2.43.0
+mediapipe==1.2.2
+opencv-python-headless
+numpy
