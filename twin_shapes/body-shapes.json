@@ -1,0 +1,1150 @@
+{
+ "version": "484ed520aa0d",
+ "sliders": [
+  "bust",
+  "underbust",
+  "waist",
+  "hip",
+  "neck",
+  "shoulder_breadth",
+  "bicep",
+  "forearm",
+  "wrist",
+  "thigh",
+  "calf",
+  "ankle",
+  "head",
+  "upper_arm_length",
+  "lower_arm_length",
+  "upper_leg_length",
+  "lower_leg_length",
+  "nape_to_waist",
+  "waist_to_hip"
+ ],
+ "effects": {
+  "female_slim": {
+   "bust+": {
+    "bust": 17.0,
+    "underbust": 7.53
+   },
+   "bust-": {
+    "bust": -15.1,
+    "underbust": -3.97,
+    "shoulder_breadth": 3.04,
+    "upper_arm_length": -2.0,
+    "arm_length": -2.0,
+    "shoulder_to_crotch": -1.4
+   },
+   "underbust+": {
+    "waist": 3.13,
+    "bust": 11.03,
+    "underbust": 9.39
+   },
+   "underbust-": {
+    "waist": -1.01,
+    "bust": -2.54,
+    "underbust": -4.01
+   },
+   "waist+": {
+    "waist": 10.21,
+    "underbust": 6.39
+   },
+   "waist-": {
+    "waist": -9.77,
+    "underbust": -6.4
+   },
+   "hip+": {
+    "waist": 0.41,
+    "hip": 18.11,
+    "thigh": 6.73
+   },
+   "hip-": {
+    "waist": -0.24,
+    "hip": -8.32,
+    "thigh": -3.29
+   },
+   "neck+": {
+    "neck": 5.0
+   },
+   "neck-": {
+    "neck": -4.83
+   },
+   "shoulder_breadth+": {
+    "bust": 3.41,
+    "underbust": 0.22,
+    "shoulder_breadth": 4.98
+   },
+   "shoulder_breadth-": {
+    "bust": -1.42,
+    "underbust": -1.04,
+    "shoulder_breadth": -2.7
+   },
+   "bicep+": {
+    "bicep": 8.51
+   },
+   "bicep-": {
+    "bicep": -8.55
+   },
+   "forearm+": {
+    "forearm": 5.42,
+    "wrist": 4.25
+   },
+   "forearm-": {
+    "forearm": -1.38
+   },
+   "wrist+": {
+    "wrist": 5.1
+   },
+   "wrist-": {
+    "wrist": -2.32
+   },
+   "thigh+": {
+    "hip": 2.32,
+    "thigh": 5.72
+   },
+   "thigh-": {
+    "hip": -0.87,
+    "thigh": -2.76
+   },
+   "calf+": {
+    "calf": 8.3
+   },
+   "calf-": {
+    "calf": -3.44
+   },
+   "ankle+": {
+    "ankle": 4.32
+   },
+   "ankle-": {
+    "ankle": -5.76
+   },
+   "head+": {
+    "head": 8.55,
+    "neck": 1.74
+   },
+   "head-": {
+    "head": -6.96,
+    "neck": -2.82
+   },
+   "upper_arm_length+": {
+    "upper_arm_length": 6.86,
+    "arm_length": 6.86
+   },
+   "upper_arm_length-": {
+    "upper_arm_length": -4.73,
+    "arm_length": -4.73
+   },
+   "lower_arm_length+": {
+    "lower_arm_length": 6.45,
+    "arm_length": 6.45,
+    "forearm": -0.08
+   },
+   "lower_arm_length-": {
+    "lower_arm_length": -4.46,
+    "arm_length": -4.46
+   },
+   "upper_leg_length+": {
+    "height": 10.37,
+    "underbust": -0.47,
+    "inside_leg": 10.38,
+    "upper_leg_length": 10.58,
+    "thigh": 0.22
+   },
+   "upper_leg_length-": {
+    "height": -7.5,
+    "underbust": 0.24,
+    "inside_leg": -7.4,
+    "hip": 0.42,
+    "shoulder_to_crotch": -0.1,
+    "upper_leg_length": -7.42,
+    "thigh": -0.6
+   },
+   "lower_leg_length+": {
+    "height": 8.1,
+    "underbust": -0.44,
+    "inside_leg": 8.09,
+    "lower_leg_length": 8.08,
+    "calf": -0.21
+   },
+   "lower_leg_length-": {
+    "height": -5.9,
+    "underbust": 0.29,
+    "inside_leg": -5.94,
+    "lower_leg_length": -5.84,
+    "calf": 0.1
+   },
+   "nape_to_waist+": {
+    "height": 7.8,
+    "waist": 0.05,
+    "bust": -0.12,
+    "underbust": 1.42,
+    "shoulder_to_crotch": 7.76,
+    "nape_to_waist": 7.6
+   },
+   "nape_to_waist-": {
+    "height": -4.65,
+    "bust": 0.15,
+    "underbust": -1.56,
+    "inside_leg": 0.1,
+    "shoulder_to_crotch": -4.75,
+    "nape_to_waist": -4.53,
+    "thigh": 0.11
+   },
+   "waist_to_hip+": {
+    "height": 7.61,
+    "waist": 0.29,
+    "underbust": -0.34,
+    "inside_leg": 0.12,
+    "shoulder_to_crotch": 7.49,
+    "nape_to_waist": 0.37,
+    "thigh": 0.13
+   },
+   "waist_to_hip-": {
+    "height": -4.8,
+    "underbust": 0.24,
+    "shoulder_to_crotch": -4.83,
+    "upper_leg_length": -1.15
+   }
+  },
+  "female_average": {
+   "bust+": {
+    "bust": 16.82,
+    "underbust": 7.36
+   },
+   "bust-": {
+    "bust": -15.76,
+    "underbust": -5.5,
+    "shoulder_breadth": 3.35,
+    "upper_arm_length": -2.07,
+    "arm_length": -2.07,
+    "shoulder_to_crotch": -1.4
+   },
+   "underbust+": {
+    "waist": 3.2,
+    "bust": 10.87,
+    "underbust": 9.39
+   },
+   "underbust-": {
+    "waist": -1.03,
+    "bust": -2.64,
+    "underbust": -4.16
+   },
+   "waist+": {
+    "waist": 10.1,
+    "underbust": 6.43
+   },
+   "waist-": {
+    "waist": -9.62,
+    "underbust": -6.45
+   },
+   "hip+": {
+    "waist": 0.4,
+    "hip": 18.11,
+    "thigh": 6.74
+   },
+   "hip-": {
+    "waist": -0.23,
+    "hip": -8.29,
+    "thigh": -3.32
+   },
+   "neck+": {
+    "neck": 4.98
+   },
+   "neck-": {
+    "neck": -4.82
+   },
+   "shoulder_breadth+": {
+    "bust": 3.9,
+    "shoulder_breadth": 4.98
+   },
+   "shoulder_breadth-": {
+    "bust": -1.74,
+    "underbust": -1.05,
+    "shoulder_breadth": -2.7
+   },
+   "bicep+": {
+    "underbust": -0.22,
+    "bicep": 8.56
+   },
+   "bicep-": {
+    "underbust": 0.22,
+    "bicep": -8.63
+   },
+   "forearm+": {
+    "forearm": 6.02,
+    "wrist": 4.25
+   },
+   "forearm-": {
+    "forearm": -1.68
+   },
+   "wrist+": {
+    "wrist": 5.11
+   },
+   "wrist-": {
+    "wrist": -2.34
+   },
+   "thigh+": {
+    "hip": 2.29,
+    "thigh": 5.85
+   },
+   "thigh-": {
+    "hip": -0.8,
+    "thigh": -2.75
+   },
+   "calf+": {
+    "calf": 9.69
+   },
+   "calf-": {
+    "calf": -3.84
+   },
+   "ankle+": {
+    "ankle": 5.72
+   },
+   "ankle-": {
+    "ankle": -5.73
+   },
+   "head+": {
+    "head": 8.55,
+    "neck": 1.76
+   },
+   "head-": {
+    "head": -6.96,
+    "neck": -2.83
+   },
+   "upper_arm_length+": {
+    "underbust": -0.22,
+    "upper_arm_length": 6.84,
+    "arm_length": 6.84
+   },
+   "upper_arm_length-": {
+    "upper_arm_length": -4.71,
+    "arm_length": -4.71,
+    "bicep": -0.05
+   },
+   "lower_arm_length+": {
+    "lower_arm_length": 6.45,
+    "arm_length": 6.45
+   },
+   "lower_arm_length-": {
+    "lower_arm_length": -4.46,
+    "arm_length": -4.46
+   },
+   "upper_leg_length+": {
+    "height": 10.37,
+    "underbust": -0.48,
+    "inside_leg": 10.38,
+    "upper_leg_length": 10.58,
+    "thigh": 0.2
+   },
+   "upper_leg_length-": {
+    "height": -7.5,
+    "underbust": 0.49,
+    "inside_leg": -7.4,
+    "hip": 0.52,
+    "shoulder_to_crotch": -0.1,
+    "upper_leg_length": -7.42,
+    "thigh": -0.56
+   },
+   "lower_leg_length+": {
+    "height": 8.1,
+    "underbust": -0.45,
+    "inside_leg": 8.09,
+    "lower_leg_length": 8.08,
+    "calf": -0.22
+   },
+   "lower_leg_length-": {
+    "height": -5.9,
+    "underbust": 0.29,
+    "inside_leg": -5.94,
+    "lower_leg_length": -5.84,
+    "calf": 0.17
+   },
+   "nape_to_waist+": {
+    "height": 7.8,
+    "waist": 0.06,
+    "bust": 0.35,
+    "underbust": 3.15,
+    "shoulder_to_crotch": 7.76,
+    "nape_to_waist": 7.6,
+    "thigh": 0.05
+   },
+   "nape_to_waist-": {
+    "height": -4.65,
+    "bust": 0.14,
+    "underbust": -1.29,
+    "inside_leg": 0.1,
+    "shoulder_to_crotch": -4.75,
+    "nape_to_waist": -4.53,
+    "thigh": 0.14
+   },
+   "waist_to_hip+": {
+    "height": 7.61,
+    "waist": 0.25,
+    "underbust": -0.34,
+    "inside_leg": 0.12,
+    "shoulder_to_crotch": 7.49,
+    "nape_to_waist": 0.37,
+    "thigh": 0.16
+   },
+   "waist_to_hip-": {
+    "height": -4.8,
+    "underbust": 0.24,
+    "shoulder_to_crotch": -4.83,
+    "upper_leg_length": -1.15
+   }
+  },
+  "female_fuller": {
+   "bust+": {
+    "bust": 16.45,
+    "underbust": 7.25
+   },
+   "bust-": {
+    "bust": -15.81,
+    "shoulder_breadth": 3.02,
+    "upper_arm_length": -1.76,
+    "arm_length": -1.76,
+    "shoulder_to_crotch": -1.22
+   },
+   "underbust+": {
+    "waist": 3.21,
+    "bust": 10.8,
+    "underbust": 10.0
+   },
+   "underbust-": {
+    "waist": -1.03,
+    "bust": -3.25,
+    "underbust": -3.8
+   },
+   "waist+": {
+    "waist": 10.0,
+    "underbust": 7.45
+   },
+   "waist-": {
+    "waist": -9.52,
+    "underbust": -7.17
+   },
+   "hip+": {
+    "waist": 0.39,
+    "hip": 17.71,
+    "thigh": 6.82
+   },
+   "hip-": {
+    "waist": -0.23,
+    "hip": -8.33,
+    "thigh": -3.36
+   },
+   "neck+": {
+    "neck": 4.98
+   },
+   "neck-": {
+    "neck": -4.82
+   },
+   "shoulder_breadth+": {
+    "bust": 3.54,
+    "shoulder_breadth": 4.98
+   },
+   "shoulder_breadth-": {
+    "bust": -1.91,
+    "underbust": -0.16,
+    "shoulder_breadth": -2.7
+   },
+   "bicep+": {
+    "bicep": 8.45
+   },
+   "bicep-": {
+    "bicep": -8.51
+   },
+   "forearm+": {
+    "forearm": 6.3,
+    "wrist": 4.25
+   },
+   "forearm-": {
+    "forearm": -1.88
+   },
+   "wrist+": {
+    "wrist": 5.11
+   },
+   "wrist-": {
+    "wrist": -2.34
+   },
+   "thigh+": {
+    "hip": 2.23,
+    "thigh": 6.39
+   },
+   "thigh-": {
+    "hip": -1.05,
+    "thigh": -2.74
+   },
+   "calf+": {
+    "calf": 10.02
+   },
+   "calf-": {
+    "calf": -4.07
+   },
+   "ankle+": {
+    "ankle": 5.75
+   },
+   "ankle-": {
+    "ankle": -5.73
+   },
+   "head+": {
+    "inside_leg": -0.15,
+    "head": 8.55,
+    "neck": 1.76,
+    "shoulder_to_crotch": 0.15,
+    "thigh": -0.14
+   },
+   "head-": {
+    "head": -6.96,
+    "neck": -2.83
+   },
+   "upper_arm_length+": {
+    "upper_arm_length": 6.83,
+    "arm_length": 6.83
+   },
+   "upper_arm_length-": {
+    "upper_arm_length": -4.7,
+    "arm_length": -4.7,
+    "bicep": -0.07
+   },
+   "lower_arm_length+": {
+    "lower_arm_length": 6.44,
+    "arm_length": 6.44
+   },
+   "lower_arm_length-": {
+    "lower_arm_length": -4.46,
+    "arm_length": -4.46
+   },
+   "upper_leg_length+": {
+    "height": 10.37,
+    "underbust": -0.3,
+    "inside_leg": 10.38,
+    "upper_leg_length": 10.58,
+    "thigh": 0.15
+   },
+   "upper_leg_length-": {
+    "height": -7.5,
+    "underbust": 0.26,
+    "inside_leg": -7.4,
+    "hip": 0.54,
+    "shoulder_to_crotch": -0.1,
+    "upper_leg_length": -7.42,
+    "thigh": -0.36
+   },
+   "lower_leg_length+": {
+    "height": 8.1,
+    "underbust": -0.29,
+    "inside_leg": 8.09,
+    "lower_leg_length": 8.07
+   },
+   "lower_leg_length-": {
+    "height": -5.9,
+    "underbust": 0.3,
+    "inside_leg": -5.94,
+    "lower_leg_length": -5.84,
+    "calf": 0.1
+   },
+   "nape_to_waist+": {
+    "height": 7.8,
+    "waist": 0.05,
+    "bust": -0.34,
+    "underbust": 0.89,
+    "inside_leg": -0.13,
+    "shoulder_to_crotch": 7.93,
+    "nape_to_waist": 7.6,
+    "thigh": -0.12
+   },
+   "nape_to_waist-": {
+    "height": -4.65,
+    "bust": -0.4,
+    "underbust": -0.59,
+    "inside_leg": -0.05,
+    "shoulder_to_crotch": -4.6,
+    "nape_to_waist": -4.53
+   },
+   "waist_to_hip+": {
+    "height": 7.61,
+    "waist": 0.23,
+    "underbust": -0.24,
+    "shoulder_to_crotch": 7.66,
+    "nape_to_waist": 0.37
+   },
+   "waist_to_hip-": {
+    "height": -4.8,
+    "underbust": 0.25,
+    "inside_leg": -0.12,
+    "hip": 0.07,
+    "shoulder_to_crotch": -4.68,
+    "upper_leg_length": -1.15,
+    "thigh": -0.11
+   }
+  },
+  "male_slim": {
+   "bust+": {
+    "bust": 16.11,
+    "underbust": 10.86
+   },
+   "bust-": {
+    "bust": -16.01,
+    "underbust": -5.18
+   },
+   "underbust+": {
+    "waist": 3.26,
+    "bust": 9.03,
+    "underbust": 8.16
+   },
+   "underbust-": {
+    "waist": -1.05,
+    "bust": -2.43,
+    "underbust": -4.32
+   },
+   "waist+": {
+    "waist": 10.02,
+    "underbust": 6.19
+   },
+   "waist-": {
+    "waist": -9.51,
+    "underbust": -5.85
+   },
+   "hip+": {
+    "waist": 0.38,
+    "hip": 18.92,
+    "thigh": 6.44
+   },
+   "hip-": {
+    "waist": -0.23,
+    "hip": -8.96,
+    "thigh": -3.16
+   },
+   "neck+": {
+    "neck": 4.76
+   },
+   "neck-": {
+    "neck": -4.5
+   },
+   "shoulder_breadth+": {
+    "bust": 5.13,
+    "shoulder_breadth": 4.98
+   },
+   "shoulder_breadth-": {
+    "bust": -2.84,
+    "shoulder_breadth": -2.7
+   },
+   "bicep+": {
+    "bust": -0.1,
+    "underbust": -0.35,
+    "bicep": 9.24
+   },
+   "bicep-": {
+    "bust": 0.1,
+    "underbust": 0.36,
+    "bicep": -9.21
+   },
+   "forearm+": {
+    "forearm": 6.09,
+    "wrist": 4.44
+   },
+   "forearm-": {
+    "forearm": -1.3
+   },
+   "wrist+": {
+    "wrist": 5.26
+   },
+   "wrist-": {
+    "wrist": -2.34
+   },
+   "thigh+": {
+    "hip": 1.5,
+    "thigh": 6.47
+   },
+   "thigh-": {
+    "thigh": -3.02
+   },
+   "calf+": {
+    "calf": 9.94
+   },
+   "calf-": {
+    "calf": -6.81
+   },
+   "ankle+": {
+    "ankle": 3.91
+   },
+   "ankle-": {
+    "ankle": -5.63
+   },
+   "head+": {
+    "head": 8.6,
+    "neck": 2.17
+   },
+   "head-": {
+    "head": -7.03,
+    "neck": -3.05
+   },
+   "upper_arm_length+": {
+    "upper_arm_length": 6.84,
+    "arm_length": 6.84,
+    "bicep": 0.09
+   },
+   "upper_arm_length-": {
+    "bust": 0.19,
+    "underbust": 0.36,
+    "upper_arm_length": -4.71,
+    "arm_length": -4.71,
+    "bicep": -0.09
+   },
+   "lower_arm_length+": {
+    "lower_arm_length": 6.48,
+    "arm_length": 6.48
+   },
+   "lower_arm_length-": {
+    "lower_arm_length": -4.49,
+    "arm_length": -4.49
+   },
+   "upper_leg_length+": {
+    "height": 10.37,
+    "bust": -0.11,
+    "underbust": -0.93,
+    "inside_leg": 10.28,
+    "shoulder_to_crotch": 0.09,
+    "upper_leg_length": 10.52,
+    "thigh": 0.18
+   },
+   "upper_leg_length-": {
+    "height": -7.5,
+    "bust": 0.21,
+    "underbust": 0.92,
+    "inside_leg": -7.42,
+    "shoulder_to_crotch": -0.08,
+    "upper_leg_length": -7.41,
+    "thigh": -0.68
+   },
+   "lower_leg_length+": {
+    "height": 8.1,
+    "underbust": -0.54,
+    "inside_leg": 8.08,
+    "lower_leg_length": 8.08
+   },
+   "lower_leg_length-": {
+    "height": -5.9,
+    "bust": 0.14,
+    "underbust": 0.67,
+    "inside_leg": -5.89,
+    "lower_leg_length": -5.83
+   },
+   "nape_to_waist+": {
+    "height": 7.8,
+    "bust": 0.67,
+    "underbust": 4.56,
+    "shoulder_to_crotch": 7.81,
+    "nape_to_waist": 7.6
+   },
+   "nape_to_waist-": {
+    "height": -4.65,
+    "bust": -0.35,
+    "underbust": -1.96,
+    "inside_leg": -0.07,
+    "shoulder_to_crotch": -4.58,
+    "nape_to_waist": -4.53,
+    "thigh": -0.07
+   },
+   "waist_to_hip+": {
+    "height": 7.61,
+    "waist": 0.5,
+    "bust": 0.1,
+    "underbust": -0.38,
+    "inside_leg": 0.08,
+    "shoulder_to_crotch": 7.53,
+    "nape_to_waist": 0.37,
+    "thigh": 0.09
+   },
+   "waist_to_hip-": {
+    "height": -4.8,
+    "bust": 0.16,
+    "underbust": 0.63,
+    "shoulder_to_crotch": -4.82,
+    "upper_leg_length": -1.15
+   }
+  },
+  "male_average": {
+   "bust+": {
+    "bust": 15.81,
+    "underbust": 10.11
+   },
+   "bust-": {
+    "bust": -14.6,
+    "underbust": -3.96
+   },
+   "underbust+": {
+    "waist": 3.22,
+    "bust": 8.72,
+    "underbust": 10.07
+   },
+   "underbust-": {
+    "waist": -1.04,
+    "bust": -2.44,
+    "underbust": -4.32
+   },
+   "waist+": {
+    "waist": 10.06,
+    "underbust": 6.03
+   },
+   "waist-": {
+    "waist": -9.61,
+    "underbust": -5.96
+   },
+   "hip+": {
+    "waist": 0.41,
+    "hip": 18.73,
+    "thigh": 6.54
+   },
+   "hip-": {
+    "waist": -0.24,
+    "hip": -8.67,
+    "thigh": -3.21
+   },
+   "neck+": {
+    "neck": 4.58
+   },
+   "neck-": {
+    "neck": -4.42
+   },
+   "shoulder_breadth+": {
+    "bust": 5.11,
+    "shoulder_breadth": 4.98
+   },
+   "shoulder_breadth-": {
+    "bust": -2.76,
+    "shoulder_breadth": -2.7
+   },
+   "bicep+": {
+    "bust": -0.15,
+    "underbust": -0.22,
+    "bicep": 9.23
+   },
+   "bicep-": {
+    "bust": 0.15,
+    "underbust": 0.22,
+    "bicep": -9.22
+   },
+   "forearm+": {
+    "forearm": 6.05,
+    "wrist": 4.41
+   },
+   "forearm-": {
+    "forearm": -1.45
+   },
+   "wrist+": {
+    "wrist": 5.22
+   },
+   "wrist-": {
+    "wrist": -2.33
+   },
+   "thigh+": {
+    "hip": 1.81,
+    "thigh": 7.07
+   },
+   "thigh-": {
+    "hip": -0.42,
+    "thigh": -2.95
+   },
+   "calf+": {
+    "calf": 9.96
+   },
+   "calf-": {
+    "calf": -6.13
+   },
+   "ankle+": {
+    "ankle": 4.56
+   },
+   "ankle-": {
+    "ankle": -5.67
+   },
+   "head+": {
+    "head": 8.6,
+    "neck": 2.18
+   },
+   "head-": {
+    "head": -7.03,
+    "neck": -3.25
+   },
+   "upper_arm_length+": {
+    "bust": -0.24,
+    "underbust": -0.22,
+    "upper_arm_length": 6.83,
+    "arm_length": 6.83,
+    "bicep": 0.17
+   },
+   "upper_arm_length-": {
+    "upper_arm_length": -4.7,
+    "arm_length": -4.7,
+    "bicep": -0.2
+   },
+   "lower_arm_length+": {
+    "lower_arm_length": 6.48,
+    "arm_length": 6.48
+   },
+   "lower_arm_length-": {
+    "lower_arm_length": -4.5,
+    "arm_length": -4.5
+   },
+   "upper_leg_length+": {
+    "height": 10.37,
+    "bust": -0.14,
+    "underbust": -0.58,
+    "inside_leg": 10.47,
+    "hip": -0.07,
+    "shoulder_to_crotch": -0.1,
+    "upper_leg_length": 10.52,
+    "thigh": 0.24
+   },
+   "upper_leg_length-": {
+    "height": -7.5,
+    "underbust": 0.34,
+    "inside_leg": -7.27,
+    "hip": 0.54,
+    "shoulder_to_crotch": -0.23,
+    "upper_leg_length": -7.42,
+    "thigh": -0.07
+   },
+   "lower_leg_length+": {
+    "height": 8.1,
+    "underbust": -0.33,
+    "inside_leg": 8.09,
+    "lower_leg_length": 8.08
+   },
+   "lower_leg_length-": {
+    "height": -5.9,
+    "bust": -0.09,
+    "underbust": 0.19,
+    "inside_leg": -5.89,
+    "lower_leg_length": -5.83
+   },
+   "nape_to_waist+": {
+    "height": 7.8,
+    "waist": 0.05,
+    "bust": 0.73,
+    "underbust": 2.86,
+    "shoulder_to_crotch": 7.8,
+    "nape_to_waist": 7.6
+   },
+   "nape_to_waist-": {
+    "height": -4.65,
+    "bust": -0.85,
+    "underbust": -1.49,
+    "inside_leg": 0.09,
+    "shoulder_to_crotch": -4.74,
+    "nape_to_waist": -4.53,
+    "thigh": 0.08
+   },
+   "waist_to_hip+": {
+    "height": 7.61,
+    "waist": 0.45,
+    "bust": -0.16,
+    "underbust": -0.46,
+    "inside_leg": 0.09,
+    "hip": -0.06,
+    "shoulder_to_crotch": 7.52,
+    "nape_to_waist": 0.37,
+    "thigh": 0.08
+   },
+   "waist_to_hip-": {
+    "height": -4.8,
+    "bust": -0.06,
+    "underbust": 0.17,
+    "hip": 0.05,
+    "shoulder_to_crotch": -4.81,
+    "upper_leg_length": -1.15
+   }
+  },
+  "male_fuller": {
+   "bust+": {
+    "bust": 16.43,
+    "underbust": 9.36
+   },
+   "bust-": {
+    "bust": -10.37
+   },
+   "underbust+": {
+    "waist": 3.22,
+    "bust": 9.74,
+    "underbust": 10.58
+   },
+   "underbust-": {
+    "waist": -1.04,
+    "bust": -2.85,
+    "underbust": -4.17
+   },
+   "waist+": {
+    "waist": 10.13,
+    "underbust": 5.92
+   },
+   "waist-": {
+    "waist": -9.76,
+    "underbust": -6.55
+   },
+   "hip+": {
+    "waist": 0.4,
+    "hip": 18.66,
+    "thigh": 6.06
+   },
+   "hip-": {
+    "waist": -0.23,
+    "hip": -8.36,
+    "thigh": -2.96
+   },
+   "neck+": {
+    "neck": 4.58
+   },
+   "neck-": {
+    "neck": -4.37
+   },
+   "shoulder_breadth+": {
+    "bust": 4.51,
+    "shoulder_breadth": 4.98
+   },
+   "shoulder_breadth-": {
+    "bust": -2.45,
+    "shoulder_breadth": -2.7
+   },
+   "bicep+": {
+    "bust": 0.09,
+    "bicep": 9.0,
+    "forearm": 0.1
+   },
+   "bicep-": {
+    "bust": 0.2,
+    "underbust": 0.14,
+    "bicep": -8.96,
+    "forearm": -0.09
+   },
+   "forearm+": {
+    "forearm": 5.78,
+    "wrist": 4.33
+   },
+   "forearm-": {
+    "forearm": -1.07
+   },
+   "wrist+": {
+    "wrist": 5.18
+   },
+   "wrist-": {
+    "wrist": -2.33
+   },
+   "thigh+": {
+    "hip": 2.31,
+    "thigh": 7.14
+   },
+   "thigh-": {
+    "hip": -0.44,
+    "thigh": -3.28
+   },
+   "calf+": {
+    "calf": 9.97
+   },
+   "calf-": {
+    "calf": -5.41
+   },
+   "ankle+": {
+    "ankle": 4.56
+   },
+   "ankle-": {
+    "ankle": -5.67
+   },
+   "head+": {
+    "head": 8.6,
+    "neck": 2.24
+   },
+   "head-": {
+    "head": -7.03,
+    "neck": -3.25
+   },
+   "upper_arm_length+": {
+    "upper_arm_length": 6.81,
+    "arm_length": 6.81,
+    "bicep": 0.13
+   },
+   "upper_arm_length-": {
+    "bust": 0.28,
+    "underbust": 0.14,
+    "upper_arm_length": -4.69,
+    "arm_length": -4.69,
+    "bicep": -0.17
+   },
+   "lower_arm_length+": {
+    "lower_arm_length": 6.48,
+    "arm_length": 6.48,
+    "forearm": -0.07
+   },
+   "lower_arm_length-": {
+    "lower_arm_length": -4.5,
+    "arm_length": -4.5,
+    "forearm": 0.09
+   },
+   "upper_leg_length+": {
+    "height": 10.37,
+    "bust": 0.12,
+    "underbust": -0.22,
+    "inside_leg": 10.45,
+    "shoulder_to_crotch": -0.08,
+    "upper_leg_length": 10.51,
+    "thigh": 0.34
+   },
+   "upper_leg_length-": {
+    "height": -7.5,
+    "bust": 0.32,
+    "underbust": 0.41,
+    "inside_leg": -7.41,
+    "hip": 0.51,
+    "shoulder_to_crotch": -0.09,
+    "upper_leg_length": -7.42,
+    "thigh": -0.55
+   },
+   "lower_leg_length+": {
+    "height": 8.1,
+    "underbust": -0.22,
+    "inside_leg": 8.07,
+    "lower_leg_length": 8.08
+   },
+   "lower_leg_length-": {
+    "height": -5.9,
+    "bust": 0.23,
+    "underbust": 0.3,
+    "inside_leg": -5.88,
+    "lower_leg_length": -5.83
+   },
+   "nape_to_waist+": {
+    "height": 7.8,
+    "bust": 1.13,
+    "underbust": 2.5,
+    "shoulder_to_crotch": 7.82,
+    "nape_to_waist": 7.6
+   },
+   "nape_to_waist-": {
+    "height": -4.65,
+    "bust": -0.27,
+    "underbust": -0.55,
+    "inside_leg": -0.07,
+    "shoulder_to_crotch": -4.58,
+    "nape_to_waist": -4.53,
+    "thigh": -0.06
+   },
+   "waist_to_hip+": {
+    "height": 7.61,
+    "waist": 0.37,
+    "bust": 0.1,
+    "underbust": -0.16,
+    "inside_leg": 0.08,
+    "shoulder_to_crotch": 7.53,
+    "nape_to_waist": 0.37,
+    "thigh": 0.07
+   },
+   "waist_to_hip-": {
+    "height": -4.8,
+    "bust": 0.25,
+    "underbust": 0.28,
+    "shoulder_to_crotch": -4.82,
+    "upper_leg_length": -1.15
+   }
+  }
+ }
+}

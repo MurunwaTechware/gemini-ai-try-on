@@ -1,6 +1,9 @@
 """The user's body profile: their twin's base body and measurements, from the body questionnaire or a
 scan, plus anything they typed in on the twin page's editor. It's what the user's mesh is made from.
 
+Every save also makes the user's twin mesh (twin_mesh.py), saved in their folder; the profile's "mesh"
+says which file and how it was made.
+
 One Firestore document per user, body_profiles/<UID>, written through the Admin SDK (like user_store.py;
 browsers never read Firestore directly). With sign-in off it's kept in memory instead, like the demo
 user's record. Saving again (the questionnaire, a new scan, the editor) replaces the whole profile; the
@@ -25,6 +28,7 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 
 import config
 import jobs
+import twin_mesh
 from auth import User, current_user, same_origin
 
 log = logging.getLogger(__name__)
@@ -110,6 +114,8 @@ class BodyProfileIn(BaseModel):
     bra: BraAnswer | None = None                    # None: skipped or not relevant
     measurements: dict[str, Measurement]            # at least height; keys from LIMITS
     scan_job: str | None = None                     # the scan the measurements came from, if any
+    # The app's shape files (body-shapes.json "version"), so a mesh built from different files is noted
+    shapes_version: str | None = Field(default=None, pattern=r"^[0-9a-f]{6,64}$")
 
     @field_validator("scan_job")
     @classmethod
@@ -145,15 +151,30 @@ def get(uid: str) -> dict | None:
 
 
 def save(uid: str, profile: BodyProfileIn) -> dict:
+    """Saves the profile with its mesh (twin_mesh.py): the new mesh first, then the profile pointing at
+    it, then the old mesh goes, so the profile never points at a missing file. A mesh that can't be made
+    doesn't stop the measurements being saved: the profile's mesh is then None."""
     record = {
-        **profile.model_dump(),
+        **profile.model_dump(exclude={"shapes_version"}),
         "version": VERSION,
         "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
+    try:
+        record["mesh"] = twin_mesh.make(uid, record, profile.shapes_version)
+        if profile.shapes_version and profile.shapes_version != record["mesh"]["shapes_version"]:
+            log.warning("the app's shape files (%s) differ from the backend's (%s): copy the frontend's "
+                        "into twin_shapes/", profile.shapes_version, record["mesh"]["shapes_version"])
+    except Exception:
+        log.exception("couldn't make the twin mesh")
+        record["mesh"] = None
     if not config.AUTH_ENABLED:
         _in_memory[uid] = record
     else:
         _ref(uid).set(record)   # replaces the whole profile: redoing the questionnaire starts clean
+    try:
+        twin_mesh.remove_others(uid, keep=record["mesh"]["file"] if record["mesh"] else None)
+    except Exception:   # leftovers only cost space; the next save tries again
+        log.exception("couldn't remove old twin meshes")
     return record
 
 

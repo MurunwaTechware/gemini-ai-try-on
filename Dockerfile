@@ -36,6 +36,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY *.py ./
 COPY models ./models
 COPY static ./static
+COPY twin_shapes ./twin_shapes
 
 # Run as a normal user, not root. UID 1000 matches the usual first user on Linux hosts,
 # so results written to the mounted folder stay editable there.

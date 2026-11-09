@@ -35,6 +35,7 @@ import job_status
 import jobs
 import prompts
 import tryon_photos
+import twin_mesh
 from auth import User, current_user, page_user, same_origin
 from job_queue import JobQueue, create_queue
 from storage import StoredPath
@@ -85,6 +86,7 @@ app.include_router(account.router)
 app.include_router(tryon_photos.router)
 app.include_router(body_profile.router)
 app.include_router(about_you.router)
+app.include_router(twin_mesh.router)
 
 
 @app.middleware("http")
