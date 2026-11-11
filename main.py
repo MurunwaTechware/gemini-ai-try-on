@@ -20,6 +20,7 @@ import secrets
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from pose_check import check_pose, pose_warning, PoseError
 
 from fastapi import BackgroundTasks, Depends, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse, RedirectResponse, StreamingResponse
@@ -209,6 +210,31 @@ async def process_upload(
     if sum(len(p.data) for p in photos.values()) > config.MAX_TOTAL_BYTES:
         raise HTTPException(413, "The photos together are over 14 MB. Resize one or more and try again.")
 
+    # Reject obvious wrong-pose uploads before a measurement job starts.
+    expected = {"front": "front", "left": "side", "right": "side"}
+    for view, exp in expected.items():
+        try:
+            await asyncio.to_thread(check_pose, photos[view].data, exp)
+        except PoseError as e:
+            raise HTTPException(422, f"{view.capitalize()} photo: {e}")
+
+    # Poses are right — now check all three are the SAME person, while the user is
+    # still on the input page. (The worker's warning gate is a second line of defence
+    # for phrasings this misses; this one keeps a clear mismatch off the results page.)
+    same = await gemini_client.check_same_person(photos)
+    if not same.same_person:
+        raise HTTPException(422, "These photos look like different people. Please retake all "
+                                 "three with the same person — front, left side and right side.")
+
+    # Soft, non-blocking warnings (e.g. feet cropped off). These don't stop the
+    # scan — the upload still succeeds — but they're returned so the page can show
+    # a notice and let the user retake if they want a better fit.
+    warnings: list[str] = []
+    for view in ("front", "left", "right"):
+        note = await asyncio.to_thread(pose_warning, photos[view].data)
+        if note:
+            warnings.append(f"{view.capitalize()} photo: {note}.")
+
     job_id = f"{_timestamp()}-{secrets.token_hex(3)}"
     job_dir = jobs.job_path(user.uid, job_id)
     inputs = {"height_cm": height_cm, "weight_kg": weight_kg, "gender": gender, "age": age}
@@ -233,7 +259,7 @@ async def process_upload(
     else:
         _inprocess_running.add(_key(user.uid, job_id))   # registered before responding, so the stream always finds it
         background.add_task(_measure_inprocess, user.uid, job_dir)
-    return {"job_id": job_id}
+    return {"job_id": job_id, "warnings": warnings}
 
 
 def _sse(event: str, data: dict) -> str:

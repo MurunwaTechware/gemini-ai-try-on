@@ -29,6 +29,29 @@ TRYON_META_FILE = "meta.json"           # in each saved try-on: the profile it c
 JOB_ID = re.compile(r"\d{8}-\d{6}-[0-9a-f]{6}")   # 20260930-123847-f5e5cc
 USER_ID = re.compile(r"[A-Za-z0-9_-]{1,128}")    # Firebase UIDs from Google/Apple sign-in are alphanumeric
 
+# Warning phrases that mean the scan can't be trusted at all — not merely lower
+# confidence. Gemini already emits these as free-text warnings (the prompt asks
+# it to flag different people / inconsistent details); we match them loosely and
+# block the scan rather than showing meaningless numbers. Clothing / pose /
+# no-side-view warnings deliberately DON'T match here — those stay soft notes.
+_SERIOUS_WARNING_PATTERNS = (
+    "different person", "different people", "different individual",
+    "different individuals", "two different", "not the same person",
+    "appear to be different", "seem to be different",
+    "inconsistent with the photos", "do not match", "don't match",
+)
+
+
+def _serious_warning(warnings: list[str]) -> str | None:
+    """Return a user-facing retake message if any warning is a hard blocker, else None."""
+    for w in warnings:
+        low = w.lower()
+        if any(p in low for p in _SERIOUS_WARNING_PATTERNS):
+            return ("We couldn't produce a reliable scan — your photos look like "
+                    "different people, or don't match the details you gave. Please "
+                    "upload three photos of the same person, facing front and to each "
+                    "side, and try again.")
+    return None
 
 def user_dir(user_id: str) -> StoredPath:
     """Everything one user has uploaded or generated. Checked, so an ID can't climb out with "../"."""
@@ -59,6 +82,29 @@ def _load_photos(job_dir: StoredPath) -> dict[str, gemini_client.InputImage]:
 def _read_job(job_dir: StoredPath) -> tuple[dict, dict[str, gemini_client.InputImage]]:
     return json.loads((job_dir / INPUTS_FILE).read_text(encoding="utf-8")), _load_photos(job_dir)
 
+# Warning phrases that mean the scan can't be trusted at all — not merely lower
+# confidence. Gemini already emits these as free-text warnings (the prompt asks
+# it to flag different people / inconsistent details); we match them loosely and
+# block the scan rather than showing meaningless numbers. Clothing / pose /
+# no-side-view warnings deliberately DON'T match here — those stay soft notes.
+_SERIOUS_WARNING_PATTERNS = (
+    "different person", "different people", "different individual",
+    "different individuals", "two different", "not the same person",
+    "appear to be different", "seem to be different",
+    "inconsistent with the photos", "do not match", "don't match",
+)
+
+
+def _serious_warning(warnings: list[str]) -> str | None:
+    """Return a user-facing retake message if any warning is a hard blocker, else None."""
+    for w in warnings:
+        low = w.lower()
+        if any(p in low for p in _SERIOUS_WARNING_PATTERNS):
+            return ("We couldn't produce a reliable scan — your photos look like "
+                    "different people, or don't match the details you gave. Please "
+                    "upload three photos of the same person, facing front and to each "
+                    "side, and try again.")
+    return None
 
 async def run_measurement(user_id: str, job_dir: StoredPath) -> None:
     """Measure one job and write measurement.json, or error.json on any failure. Never raises
